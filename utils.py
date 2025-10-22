@@ -67,8 +67,9 @@ class BuscadorArchivos(VentanaBase):
             btn.setFixedHeight(60)
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #3a3a3c; color: white;
-                    border: 2px solid white; border-radius: 15px;
+                    background-color: #2B313F; color: white;
+                    font-size: 20px;
+                    border-radius: 15px;
                 } QPushButton:hover { background-color: #4a4a4c; }
             """)
             btn.clicked.connect(lambda _, i=info: self.seleccionar_unidad(i))
@@ -145,11 +146,11 @@ class BuscadorArchivos(VentanaBase):
 
     # ---------- UTILIDADES ----------
     def abrir_archivo(self, ruta):
-        """Abre solo archivos permitidos (.mp3, .docx, .xlsx, .pdf, .txt, .exe, .mp4, .jpg, .rar, .zip)."""
+        """Abre solo archivos permitidos (.mp3, .docx, .xlsx, .pdf, .txt, .exe, .mp4, .jpg, .jpeg, .rar, .zip, .gif)."""
         try:
             extension = os.path.splitext(ruta)[1].lower()
             extensiones_permitidas = {
-                '.mp3', '.docx', '.xlsx', '.pdf', '.txt', '.exe', '.mp4', '.jpg', '.rar', '.zip'
+                '.mp3', '.docx', '.xlsx', '.pdf', '.txt', '.exe', '.mp4', '.jpg', '.jpeg', '.rar', '.zip', '.gif'
             }
 
             if extension not in extensiones_permitidas:
