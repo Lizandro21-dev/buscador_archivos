@@ -122,12 +122,22 @@ class BuscadorArchivos(VentanaBase):
     def mostrar_sugerencias(self, coincidencias):
         self.results_list.clear()
         self.resultados = coincidencias
+
+        # Evitar conexiones múltiples
+        try:
+            self.results_list.itemDoubleClicked.disconnect()
+        except TypeError:
+            pass
+
+        self.results_list.itemDoubleClicked.connect(self.abrir_item)
+
         if not coincidencias:
             self.results_list.addItem("Sin coincidencias...")
             return
-        for c in coincidencias[:200]:  # límite para mantener fluidez
+
+        for c in coincidencias[:200]:
             self.results_list.addItem(c['nombre'])
-        self.results_list.itemDoubleClicked.connect(self.abrir_item)
+
 
     def buscar_archivos(self):
         """Búsqueda manual con botón"""
