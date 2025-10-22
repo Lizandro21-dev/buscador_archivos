@@ -1,5 +1,4 @@
 import os
-#PUTOTE GIL
 import sys
 import string
 import threading
