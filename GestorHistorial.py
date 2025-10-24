@@ -1,79 +1,190 @@
+"""
+GestorHistorial - Módulo para gestionar el historial de búsquedas del usuario
+Mantiene un registro persistente de las búsquedas realizadas, ordenado alfabéticamente
+y limitado a un máximo de búsquedas para evitar saturación.
+"""
+
 import json
 import os
+from typing import List, Optional
 
 
 class GestorHistorial:
-    """Maneja el historial de búsquedas del usuario"""
+    """
+    Administrador del historial de búsquedas del usuario.
     
-    def __init__(self, archivo='historial_busquedas.json'):
-        # Ruta del archivo JSON donde se guarda el historial
+    Características:
+    - Almacenamiento persistente en archivo JSON
+    - Ordenamiento alfabético automático (case-insensitive)
+    - Sin duplicados
+    - Límite configurable de búsquedas
+    - Búsqueda por coincidencias parciales
+    """
+    
+    # Constantes de configuración
+    MAX_BUSQUEDAS = 10
+    ARCHIVO_DEFAULT = 'historial_busquedas.json'
+    
+    def __init__(self, archivo: str = ARCHIVO_DEFAULT):
+        """
+        Inicializa el gestor de historial.
+        
+        Args:
+            archivo: Ruta del archivo JSON donde se persiste el historial
+        """
         self.archivo = archivo
-        # Lista que contiene todas las búsquedas
-        self.historial = self.cargar_historial()
+        self.historial: List[str] = self._cargar_historial()
     
-    def cargar_historial(self):
-        """Carga el historial desde archivo JSON"""
-        try:
-            if os.path.exists(self.archivo):
-                with open(self.archivo, 'r', encoding='utf-8') as f:
-                    historial_cargado = json.load(f)
-                    # Ordenar alfabéticamente (insensible a mayúsculas)
-                    return sorted(historial_cargado, key=lambda x: x.lower())
+    def _cargar_historial(self) -> List[str]:
+        """
+        Carga el historial desde el archivo JSON.
+        
+        Returns:
+            Lista de términos de búsqueda ordenados alfabéticamente.
+            Lista vacía si el archivo no existe o hay error de lectura.
+        """
+        if not os.path.exists(self.archivo):
             return []
-        except Exception:
+        
+        try:
+            with open(self.archivo, 'r', encoding='utf-8') as f:
+                historial_cargado = json.load(f)
+                # Asegurar que el historial esté ordenado alfabéticamente
+                return self._ordenar_lista(historial_cargado)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Error al cargar historial: {e}")
             return []
     
-    def guardar_historial(self):
-        """Guarda el historial en archivo JSON ordenado alfabéticamente"""
+    def _guardar_historial(self) -> bool:
+        """
+        Persiste el historial en el archivo JSON.
+        
+        Returns:
+            True si se guardó exitosamente, False en caso contrario
+        """
         try:
-            # Ordenar antes de guardar
-            self.historial = sorted(self.historial, key=lambda x: x.lower())
+            # Ordenar antes de guardar para mantener consistencia
+            self.historial = self._ordenar_lista(self.historial)
+            
             with open(self.archivo, 'w', encoding='utf-8') as f:
                 json.dump(self.historial, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+            return True
+        except IOError as e:
+            print(f"Error al guardar historial: {e}")
+            return False
     
-    def agregar(self, termino):
-        """Agrega un término al historial sin duplicados"""
+    @staticmethod
+    def _ordenar_lista(lista: List[str]) -> List[str]:
+        """
+        Ordena una lista de strings alfabéticamente (case-insensitive).
+        
+        Args:
+            lista: Lista de strings a ordenar
+            
+        Returns:
+            Lista ordenada alfabéticamente
+        """
+        return sorted(lista, key=lambda x: x.lower())
+    
+    def agregar(self, termino: str) -> bool:
+        """
+        Agrega un término al historial.
+        
+        - Elimina espacios en blanco al inicio/final
+        - Evita duplicados
+        - Mantiene un límite máximo de 10 búsquedas más recientes
+        - Muestra en orden alfabético
+        - Guarda automáticamente
+        
+        Args:
+            termino: Término de búsqueda a agregar
+            
+        Returns:
+            True si se agregó exitosamente, False si el término está vacío
+        """
         termino = termino.strip()
         if not termino:
-            return
+            return False
         
-        # Eliminar si ya existe
+        # Eliminar si ya existe para evitar duplicados
         if termino in self.historial:
             self.historial.remove(termino)
         
-        # Agregar
+        # Agregar el nuevo término
         self.historial.append(termino)
         
-        # Limitar a 100 búsquedas
-        self.historial = self.historial[:100]
+        # Aplicar límite de búsquedas (mantener las más recientes)
+        if len(self.historial) > self.MAX_BUSQUEDAS:
+            self.historial = self.historial[-self.MAX_BUSQUEDAS:]
         
-        # Ordenar alfabéticamente
-        self.historial = sorted(self.historial, key=lambda x: x.lower())
-        
-        self.guardar_historial()
+        # Persistir cambios (se ordenará alfabéticamente al guardar)
+        return self._guardar_historial()
     
-    def buscar_coincidencias(self, texto):
-        """Busca términos que coincidan con el texto"""
+    def buscar_coincidencias(self, texto: str) -> List[str]:
+        """
+        Busca términos que contengan el texto proporcionado.
+        
+        La búsqueda es case-insensitive y busca coincidencias parciales.
+        Si no hay texto, retorna todo el historial.
+        
+        Args:
+            texto: Texto a buscar dentro de los términos del historial
+            
+        Returns:
+            Lista de términos que contienen el texto, ordenados alfabéticamente
+        """
         if not texto:
-            # Mostrar todo el historial ordenado alfabéticamente
-            return sorted(self.historial, key=lambda x: x.lower())
+            # Retornar todo el historial ordenado si no hay criterio de búsqueda
+            return self._ordenar_lista(self.historial)
         
         texto_lower = texto.lower()
-        # Filtrar coincidencias y ordenar alfabéticamente
-        coincidencias = [h for h in self.historial if texto_lower in h.lower()]
-        return sorted(coincidencias, key=lambda x: x.lower())
+        # Filtrar coincidencias usando búsqueda case-insensitive
+        coincidencias = [
+            termino for termino in self.historial 
+            if texto_lower in termino.lower()
+        ]
+        
+        return self._ordenar_lista(coincidencias)
     
-    def limpiar(self):
-        """Limpia todo el historial"""
+    def limpiar(self) -> bool:
+        """
+        Elimina todos los términos del historial.
+        
+        Returns:
+            True si se limpió exitosamente
+        """
         self.historial = []
-        self.guardar_historial()
+        return self._guardar_historial()
     
-    def obtener_todos(self):
-        """Retorna todo el historial ordenado"""
-        return sorted(self.historial, key=lambda x: x.lower())
+    def obtener_todos(self) -> List[str]:
+        """
+        Obtiene todo el historial ordenado alfabéticamente.
+        
+        Returns:
+            Lista completa del historial ordenado
+        """
+        return self._ordenar_lista(self.historial)
     
-    def total_busquedas(self):
-        """Retorna cantidad de búsquedas en historial"""
+    def total_busquedas(self) -> int:
+        """
+        Obtiene la cantidad total de búsquedas en el historial.
+        
+        Returns:
+            Número de términos en el historial
+        """
         return len(self.historial)
+    
+    def eliminar_termino(self, termino: str) -> bool:
+        """
+        Elimina un término específico del historial.
+        
+        Args:
+            termino: Término a eliminar
+            
+        Returns:
+            True si se eliminó exitosamente, False si no se encontró
+        """
+        if termino in self.historial:
+            self.historial.remove(termino)
+            return self._guardar_historial()
+        return False
