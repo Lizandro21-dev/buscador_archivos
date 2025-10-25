@@ -42,7 +42,6 @@ class VentanaBase(QMainWindow):
         Estructura jerárquica:
         - Ventana principal
           ├── Barra de búsqueda (superior)
-          ├── Botones de tipo de búsqueda
           └── Paneles horizontales
               ├── Panel izquierdo (unidades USB)
               └── Panel derecho (resultados)
@@ -58,7 +57,7 @@ class VentanaBase(QMainWindow):
         
         # Agregar componentes en orden vertical
         layout.addLayout(self._crear_barra_busqueda())
-        layout.addLayout(self._crear_botones_tipo_busqueda())
+        # ELIMINADO: layout.addLayout(self._crear_botones_tipo_busqueda())
         
         # Paneles principales (horizontal)
         paneles = QHBoxLayout()
@@ -116,7 +115,7 @@ class VentanaBase(QMainWindow):
         Crea el campo de entrada de texto para búsquedas.
         
         Features:
-        - Placeholder dinámico
+        - Búsqueda combinada (nombre, extensión y contenido)
         - Bordes redondeados
         - Efecto de foco con cambio de color
         - Conectado a eventos de cambio de texto y Enter
@@ -125,7 +124,7 @@ class VentanaBase(QMainWindow):
             Campo de texto configurado
         """
         campo = QLineEdit()
-        campo.setPlaceholderText("Escribe el nombre del archivo...")
+        campo.setPlaceholderText("Buscar archivos (por nombre, extensión o contenido)...")
         campo.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {self.COLOR_FONDO_OSCURO};
@@ -209,8 +208,11 @@ class VentanaBase(QMainWindow):
         
         return boton
     
+    # MÉTODO ELIMINADO: Ya no se usan los botones de tipo de búsqueda
+    # La búsqueda ahora combina nombre, extensión y contenido en un solo método
+    """
     def _crear_botones_tipo_busqueda(self) -> QHBoxLayout:
-        """
+        
         Crea los botones para seleccionar el tipo de búsqueda.
         
         Tipos disponibles:
@@ -220,7 +222,7 @@ class VentanaBase(QMainWindow):
         
         Returns:
             Layout horizontal con los tres botones de tipo de búsqueda
-        """
+        
         layout_botones = QHBoxLayout()
         layout_botones.setSpacing(10)
         
@@ -248,9 +250,12 @@ class VentanaBase(QMainWindow):
         layout_botones.addStretch()
         
         return layout_botones
+    """
     
+    # MÉTODO ELIMINADO: Ya no se crean botones individuales de tipo de búsqueda
+    """
     def _crear_boton_tipo(self, texto: str, id_tipo: int, checked: bool = False) -> QPushButton:
-        """
+        
         Crea un botón de tipo de búsqueda.
         
         Args:
@@ -260,12 +265,12 @@ class VentanaBase(QMainWindow):
             
         Returns:
             Botón configurado con estilo toggle
-        """
+        
         boton = QPushButton(texto)
         boton.setCheckable(True)
         boton.setChecked(checked)
         boton.setFixedHeight(40)
-        boton.setStyleSheet(f"""
+        boton.setStyleSheet(f'''
             QPushButton {{
                 background-color: {self.COLOR_FONDO_CLARO};
                 color: white;
@@ -283,10 +288,11 @@ class VentanaBase(QMainWindow):
                 background-color: {self.COLOR_PRIMARIO};
                 border-color: {self.COLOR_PRIMARIO_HOVER};
             }}
-        """)
+        ''')
         boton.setCursor(Qt.PointingHandCursor)
         
         return boton
+    """
     
     def _crear_panel_izquierdo(self, parent: QHBoxLayout):
         """
@@ -403,9 +409,13 @@ class VentanaBase(QMainWindow):
         """Limpia el historial de búsquedas."""
         pass
     
+    # MÉTODO ELIMINADO: Ya no se cambia el tipo de búsqueda
+    # La búsqueda ahora es automática combinando todos los criterios
+    """
     def cambiar_tipo_busqueda(self, boton):
-        """Cambia el tipo de búsqueda activo."""
+        Cambia el tipo de búsqueda activo.
         pass
+    """
     
     def mostrar_mensaje_inicial(self):
         """Muestra el mensaje inicial en la lista de resultados."""

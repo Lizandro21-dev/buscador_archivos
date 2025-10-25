@@ -1,7 +1,7 @@
 """
 GestorHistorial - Módulo para gestionar el historial de búsquedas del usuario
-Mantiene un registro persistente de las búsquedas realizadas, ordenado alfabéticamente
-y limitado a un máximo de búsquedas para evitar saturación.
+Mantiene un registro TEMPORAL de las búsquedas realizadas durante la sesión actual.
+El historial se borra automáticamente al cerrar el programa.
 """
 
 import json
@@ -14,15 +14,16 @@ class GestorHistorial:
     Administrador del historial de búsquedas del usuario.
     
     Características:
-    - Almacenamiento persistente en archivo JSON
+    - Almacenamiento TEMPORAL solo durante la ejecución
     - Ordenamiento alfabético automático (case-insensitive)
     - Sin duplicados
     - Límite configurable de búsquedas
     - Búsqueda por coincidencias parciales
+    - Se limpia automáticamente al cerrar el programa
     """
     
     # Constantes de configuración
-    MAX_BUSQUEDAS = 10
+    MAX_BUSQUEDAS = 20
     ARCHIVO_DEFAULT = 'historial_busquedas.json'
     
     def __init__(self, archivo: str = ARCHIVO_DEFAULT):
@@ -33,11 +34,27 @@ class GestorHistorial:
             archivo: Ruta del archivo JSON donde se persiste el historial
         """
         self.archivo = archivo
-        self.historial: List[str] = self._cargar_historial()
+        # CAMBIO: Limpiar historial anterior al iniciar
+        self._limpiar_archivo_anterior()
+        # Iniciar con historial vacío
+        self.historial: List[str] = []
+    
+    def _limpiar_archivo_anterior(self):
+        """
+        Elimina el archivo de historial anterior si existe.
+        Esto asegura que cada sesión comience limpia.
+        """
+        if os.path.exists(self.archivo):
+            try:
+                os.remove(self.archivo)
+            except OSError as e:
+                print(f"Error al limpiar historial anterior: {e}")
     
     def _cargar_historial(self) -> List[str]:
         """
         Carga el historial desde el archivo JSON.
+        NOTA: En el modo temporal, esto solo se usa si se necesita
+        cargar historial durante la sesión actual.
         
         Returns:
             Lista de términos de búsqueda ordenados alfabéticamente.
@@ -49,7 +66,6 @@ class GestorHistorial:
         try:
             with open(self.archivo, 'r', encoding='utf-8') as f:
                 historial_cargado = json.load(f)
-                # Asegurar que el historial esté ordenado alfabéticamente
                 return self._ordenar_lista(historial_cargado)
         except (json.JSONDecodeError, IOError) as e:
             print(f"Error al cargar historial: {e}")
@@ -58,14 +74,13 @@ class GestorHistorial:
     def _guardar_historial(self) -> bool:
         """
         Persiste el historial en el archivo JSON.
+        Mantiene el orden cronológico de aparición.
         
         Returns:
             True si se guardó exitosamente, False en caso contrario
         """
         try:
-            # Ordenar antes de guardar para mantener consistencia
-            self.historial = self._ordenar_lista(self.historial)
-            
+            # CAMBIO: NO ordenar - mantener orden cronológico
             with open(self.archivo, 'w', encoding='utf-8') as f:
                 json.dump(self.historial, f, ensure_ascii=False, indent=2)
             return True
@@ -88,27 +103,27 @@ class GestorHistorial:
     
     def agregar(self, termino: str) -> bool:
         """
-        Agrega un término al historial.
+        Agrega un término al historial de la sesión actual.
         
         - Elimina espacios en blanco al inicio/final
-        - Evita duplicados
-        - Mantiene un límite máximo de 10 búsquedas más recientes
-        - Muestra en orden alfabético
+        - NO permite duplicados (si ya existe, no lo agrega)
+        - Mantiene un límite máximo de búsquedas
+        - Mantiene orden cronológico de primera aparición
         - Guarda automáticamente
         
         Args:
             termino: Término de búsqueda a agregar
             
         Returns:
-            True si se agregó exitosamente, False si el término está vacío
+            True si se agregó exitosamente, False si el término está vacío o ya existe
         """
         termino = termino.strip()
         if not termino:
             return False
         
-        # Eliminar si ya existe para evitar duplicados
+        # CAMBIO: Si ya existe, NO hacer nada (mantener su posición original)
         if termino in self.historial:
-            self.historial.remove(termino)
+            return True  # Ya existe, no es necesario agregarlo
         
         # Agregar el nuevo término
         self.historial.append(termino)
@@ -117,7 +132,10 @@ class GestorHistorial:
         if len(self.historial) > self.MAX_BUSQUEDAS:
             self.historial = self.historial[-self.MAX_BUSQUEDAS:]
         
-        # Persistir cambios (se ordenará alfabéticamente al guardar)
+        # NO ordenar - mantener orden cronológico
+        # self.historial = self._ordenar_lista(self.historial)
+        
+        # Persistir cambios durante la sesión
         return self._guardar_historial()
     
     def buscar_coincidencias(self, texto: str) -> List[str]:
@@ -125,30 +143,29 @@ class GestorHistorial:
         Busca términos que contengan el texto proporcionado.
         
         La búsqueda es case-insensitive y busca coincidencias parciales.
-        Si no hay texto, retorna todo el historial.
+        Si no hay texto, retorna todo el historial en orden cronológico inverso.
         
         Args:
             texto: Texto a buscar dentro de los términos del historial
             
         Returns:
-            Lista de términos que contienen el texto, ordenados alfabéticamente
+            Lista de términos que contienen el texto (más recientes primero)
         """
         if not texto:
-            # Retornar todo el historial ordenado si no hay criterio de búsqueda
-            return self._ordenar_lista(self.historial)
+            return list(reversed(self.historial))
         
         texto_lower = texto.lower()
-        # Filtrar coincidencias usando búsqueda case-insensitive
         coincidencias = [
             termino for termino in self.historial 
             if texto_lower in termino.lower()
         ]
         
-        return self._ordenar_lista(coincidencias)
+        # Devolver coincidencias en orden inverso (más recientes primero)
+        return list(reversed(coincidencias))
     
     def limpiar(self) -> bool:
         """
-        Elimina todos los términos del historial.
+        Elimina todos los términos del historial de la sesión actual.
         
         Returns:
             True si se limpió exitosamente
@@ -158,16 +175,18 @@ class GestorHistorial:
     
     def obtener_todos(self) -> List[str]:
         """
-        Obtiene todo el historial ordenado alfabéticamente.
+        Obtiene todo el historial de la sesión actual en orden cronológico inverso.
+        Las búsquedas más recientes aparecen primero.
         
         Returns:
-            Lista completa del historial ordenado
+            Lista completa del historial (más recientes primero)
         """
-        return self._ordenar_lista(self.historial)
+        # Devolver en orden inverso para mostrar las más recientes primero
+        return list(reversed(self.historial))
     
     def total_busquedas(self) -> int:
         """
-        Obtiene la cantidad total de búsquedas en el historial.
+        Obtiene la cantidad total de búsquedas en el historial de la sesión.
         
         Returns:
             Número de términos en el historial
@@ -188,3 +207,15 @@ class GestorHistorial:
             self.historial.remove(termino)
             return self._guardar_historial()
         return False
+    
+    def cerrar_sesion(self):
+        """
+        Limpia el historial y elimina el archivo al cerrar el programa.
+        Llama a este método cuando tu aplicación se cierre.
+        """
+        self.historial = []
+        if os.path.exists(self.archivo):
+            try:
+                os.remove(self.archivo)
+            except OSError as e:
+                print(f"Error al eliminar archivo de historial: {e}")

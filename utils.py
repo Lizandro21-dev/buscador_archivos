@@ -1,3 +1,8 @@
+"""
+Utils - Módulo principal del Buscador de Archivos USB
+Contiene la lógica de negocio, detección de unidades, búsqueda y gestión de archivos.
+"""
+
 import os
 import sys
 import string
@@ -18,6 +23,8 @@ from ventana import VentanaBase
 from GestorHistorial import GestorHistorial
 
 
+# ========== CONSTANTES ==========
+
 # Extensiones de archivos que se pueden leer como texto
 EXTENSIONES_TEXTO = {
     '.txt', '.log', '.csv', '.json', '.xml', '.html', 
@@ -36,11 +43,17 @@ EXTENSIONES_DOCUMENTOS = {
 ENCODINGS_TEXTO = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
 
 
-#------------------------ FUNCIONES AUXILIARES 
+# ========== FUNCIONES AUXILIARES ==========
 
 def detectar_unidades_disponibles() -> List[Dict[str, str]]:
     """
     Detecta unidades extraíbles USB conectadas al sistema Windows.
+    
+    Proceso:
+    1. Itera por todas las letras del alfabeto (A-Z)
+    2. Verifica si existe la unidad y si es removible
+    3. Excluye A:, B: (disqueteras) y C: (sistema)
+    
     Returns:
         Lista de diccionarios con información de cada unidad USB:
         [{'texto': 'D:/', 'ruta': 'D:\\'}, ...]
@@ -84,7 +97,14 @@ def detectar_unidades_disponibles() -> List[Dict[str, str]]:
 def leer_contenido_archivo(ruta: str) -> str:
     """
     Lee y extrae el contenido de texto de un archivo.
-
+    
+    Soporta múltiples formatos:
+    - Archivos de texto plano (.txt, .log, .csv, etc.)
+    - Documentos Word (.docx)
+    - Presentaciones PowerPoint (.pptx)
+    - Hojas de cálculo Excel (.xlsx)
+    - Documentos PDF (.pdf)
+    
     Args:
         ruta: Ruta completa del archivo a leer
         
@@ -205,7 +225,7 @@ def _leer_pdf(ruta: str) -> str:
         return ""
 
 
-#--------- CLASE PRINCIPAL 
+# ========== CLASE PRINCIPAL ==========
 
 class BuscadorArchivos(VentanaBase):
     """
@@ -224,10 +244,8 @@ class BuscadorArchivos(VentanaBase):
     DELAY_BUSQUEDA_VIVO = 300       # ms (0.3 segundos)
     MAX_ARCHIVOS_MOSTRADOS = 500    # Límite para rendimiento
     
-    # IDs de tipos de búsqueda
-    BUSQUEDA_NOMBRE = 1
-    BUSQUEDA_EXTENSION = 2
-    BUSQUEDA_CONTENIDO = 3
+    # ELIMINADO: IDs de tipos de búsqueda (ya no se usan)
+    # Ahora se busca por TODOS los criterios simultáneamente
     
     def __init__(self):
         """Inicializa el buscador de archivos."""
@@ -238,12 +256,11 @@ class BuscadorArchivos(VentanaBase):
         self.resultados: List[Dict] = []
         self.todos_los_archivos: List[Dict] = []
         self.unidades_previas: List[Dict] = []
-        self.tipo_busqueda: int = self.BUSQUEDA_NOMBRE
+        # ELIMINADO: self.tipo_busqueda (ya no se usa)
         
         # Gestor de historial y autocompletado
         self.historial = GestorHistorial()
         self.completer: Optional[QCompleter] = None
-
         
         # Inicializar interfaz gráfica
         self.init_ui()
@@ -333,16 +350,16 @@ class BuscadorArchivos(VentanaBase):
     def on_search_input_click(self, event):
         """
         Maneja el evento de clic en el campo de búsqueda.
-        Muestra el historial completo si hay poco o ningún texto.
+        Muestra el historial completo SIEMPRE, sin importar el texto.
         """
-        if len(self.search_input.text()) < 2:
-            try:
-                model = QStringListModel()
-                model.setStringList(self.historial.obtener_todos())
-                self.completer.setModel(model)
-                self.completer.complete()
-            except Exception as e:
-                print(f"Error al mostrar historial: {e}")
+        # CAMBIO: SIEMPRE mostrar todo el historial al hacer clic
+        try:
+            model = QStringListModel()
+            model.setStringList(self.historial.obtener_todos())
+            self.completer.setModel(model)
+            self.completer.complete()
+        except Exception as e:
+            print(f"Error al mostrar historial: {e}")
         
         # Ejecutar evento original para mantener funcionalidad normal
         self.search_input_click_original(event)
@@ -350,29 +367,27 @@ class BuscadorArchivos(VentanaBase):
     def on_search_input_focus(self, event):
         """
         Maneja el evento cuando el campo obtiene el foco.
-        Muestra el historial si está vacío.
+        Muestra el historial completo SIEMPRE.
         """
         self.search_input_focus_original(event)
         
-        if not self.search_input.text():
-            try:
-                model = QStringListModel()
-                model.setStringList(self.historial.obtener_todos())
-                self.completer.setModel(model)
-            except Exception:
-                pass
+        # CAMBIO: SIEMPRE mostrar todo el historial al enfocar
+        try:
+            model = QStringListModel()
+            model.setStringList(self.historial.obtener_todos())
+            self.completer.setModel(model)
+        except Exception:
+            pass
     
     def on_texto_cambiado(self):
         """
         Se ejecuta cuando cambia el texto en el campo de búsqueda.
         Actualiza sugerencias del historial e inicia búsqueda en vivo.
         """
-        texto = self.search_input.text()
-        
-        # Actualizar sugerencias del historial basadas en coincidencias
-        coincidencias = self.historial.buscar_coincidencias(texto)
+        # CAMBIO: Siempre mostrar TODO el historial, no solo coincidencias
+        # El QCompleter ya se encarga de filtrar internamente
         model = QStringListModel()
-        model.setStringList(coincidencias)
+        model.setStringList(self.historial.obtener_todos())
         self.completer.setModel(model)
         
         # Iniciar búsqueda en vivo si hay unidad seleccionada
@@ -560,13 +575,16 @@ class BuscadorArchivos(VentanaBase):
     
     # ========== TIPOS DE BÚSQUEDA ==========
     
+    # MÉTODO ELIMINADO: Ya no se cambia el tipo de búsqueda
+    # La búsqueda ahora es automática combinando todos los criterios
+    """
     def cambiar_tipo_busqueda(self, boton):
-        """
+        
         Cambia el tipo de búsqueda activo y actualiza la interfaz.
         
         Args:
             boton: Botón que fue clickeado
-        """
+        
         self.tipo_busqueda = self.grupo_busqueda.id(boton)
         
         # Actualizar placeholder según el tipo de búsqueda
@@ -580,6 +598,7 @@ class BuscadorArchivos(VentanaBase):
         # Re-ejecutar búsqueda si hay texto ingresado
         if self.search_input.text().strip():
             self.buscar_sugerencias()
+    """
     
     def iniciar_autocompletado(self):
         """
@@ -592,9 +611,41 @@ class BuscadorArchivos(VentanaBase):
         # Reiniciar timer (espera 300ms desde última tecla)
         self.timer_autocompletar.start(self.DELAY_BUSQUEDA_VIVO)
     
+    def BusquedaPor(self, texto: str) -> List[Dict]:
+        """
+        Busca archivos por TODOS los criterios: nombre, extensión y contenido.
+        Combina los resultados de las tres búsquedas sin duplicados.
+        
+        Args:
+            texto: Texto a buscar
+            
+        Returns:
+            Lista de archivos únicos que coinciden con cualquiera de los criterios
+        """
+        # Usar un conjunto para evitar duplicados (basado en ruta de archivo)
+        archivos_encontrados = {}
+        
+        # 1. Buscar por nombre
+        resultados_nombre = self._buscar_por_nombre(texto)
+        for archivo in resultados_nombre:
+            archivos_encontrados[archivo['ruta']] = archivo
+        
+        # 2. Buscar por extensión
+        resultados_extension = self._buscar_por_extension(texto)
+        for archivo in resultados_extension:
+            archivos_encontrados[archivo['ruta']] = archivo
+        
+        # 3. Buscar por contenido
+        resultados_contenido = self._buscar_por_contenido(texto)
+        for archivo in resultados_contenido:
+            archivos_encontrados[archivo['ruta']] = archivo
+        
+        # Convertir el diccionario a lista
+        return list(archivos_encontrados.values())
+    
     def buscar_sugerencias(self):
         """
-        Filtra archivos según el tipo de búsqueda seleccionado.
+        Filtra archivos usando búsqueda combinada (nombre, extensión y contenido).
         Actualiza la lista de resultados en tiempo real.
         """
         texto = self.search_input.text().strip().lower()
@@ -604,15 +655,8 @@ class BuscadorArchivos(VentanaBase):
             self.mostrar_todos_los_archivos()
             return
         
-        # Aplicar filtro según tipo de búsqueda
-        if self.tipo_busqueda == self.BUSQUEDA_NOMBRE:
-            coincidencias = self._buscar_por_nombre(texto)
-        elif self.tipo_busqueda == self.BUSQUEDA_EXTENSION:
-            coincidencias = self._buscar_por_extension(texto)
-        elif self.tipo_busqueda == self.BUSQUEDA_CONTENIDO:
-            coincidencias = self._buscar_por_contenido(texto)
-        else:
-            coincidencias = []
+        # NUEVO: Usar BusquedaPor que combina todos los criterios
+        coincidencias = self.BusquedaPor(texto)
         
         # Mostrar resultados filtrados
         self._mostrar_resultados(coincidencias, texto)
@@ -811,10 +855,11 @@ class BuscadorArchivos(VentanaBase):
         self.results_list.addItem("  2. Espera a que se indexen los archivos")
         self.results_list.addItem("  3. Escribe para buscar o explora todos los archivos")
         self.results_list.addItem("")
-        self.results_list.addItem("  Tipos de búsqueda disponibles:")
-        self.results_list.addItem("    • Por Nombre: Busca en el nombre del archivo")
-        self.results_list.addItem("    • Por Extensión: Busca por tipo (.pdf, .txt, etc)")
-        self.results_list.addItem("    • Por Contenido: Busca dentro de los archivos")
+        self.results_list.addItem("  Búsqueda inteligente automática:")
+        self.results_list.addItem("    • Busca simultáneamente en nombre, extensión y contenido")
+        self.results_list.addItem("    • Obtén resultados más completos en una sola búsqueda")
+        self.results_list.addItem("    • Ejemplo: 'python' encuentra archivos llamados 'python.txt',")
+        self.results_list.addItem("      archivos .py y archivos que contengan la palabra 'python'")
         self.results_list.addItem("")
     
     def alerta(self, mensaje: str, tipo=QMessageBox.Warning):
@@ -831,15 +876,6 @@ class BuscadorArchivos(VentanaBase):
         msg.setWindowTitle("Aviso")
         msg.exec_()
 
-
-    
-    def closeEvent(self, event):
-        """
-        Se ejecuta al cerrar la ventana.
-        Limpia el historial antes de salir.
-        """
-        self.historial.limpiar()
-        event.accept()
 
 # ========== PUNTO DE ENTRADA ==========
 
