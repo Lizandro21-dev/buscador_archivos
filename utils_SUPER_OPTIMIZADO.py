@@ -205,7 +205,7 @@ def _leer_pptx(ruta: str) -> str:
 def _leer_xlsx(ruta: str) -> str:
     """
     Lee contenido de archivos .xlsx usando openpyxl.
-    OPTIMIZADO: Lee solo la primera hoja y primeras 200 filas.
+    OPTIMIZADO: Lee solo la primera hoja y primeras 500 filas.
     """
     try:
         from openpyxl import load_workbook
@@ -217,7 +217,7 @@ def _leer_xlsx(ruta: str) -> str:
             sheet = wb.worksheets[0]
             # Solo leer primeras 500 filas
             for idx, row in enumerate(sheet.iter_rows(values_only=True)):
-                if idx >= 200:
+                if idx >= 500:
                     break
                 for cell in row:
                     if cell is not None:
@@ -268,7 +268,7 @@ class BuscadorArchivos(VentanaBase):
     # Constantes de configuración
     INTERVALO_DETECCION_USB = 2000  # ms (2 segundos)
     DELAY_BUSQUEDA_VIVO = 300       # ms (0.3 segundos)
-    MAX_ARCHIVOS_MOSTRADOS = 200    # Límite para rendimiento
+    MAX_ARCHIVOS_MOSTRADOS = 500    # Límite para rendimiento
     
     # ELIMINADO: IDs de tipos de búsqueda (ya no se usan)
     # Ahora se busca por TODOS los criterios simultáneamente
@@ -283,6 +283,7 @@ class BuscadorArchivos(VentanaBase):
         self.todos_los_archivos: List[Dict] = []
         self.unidades_previas: List[Dict] = []
         self.busqueda_en_progreso: bool = False  # Flag para evitar búsquedas simultáneas
+        self.mostrando_todos: bool = False  # Flag para saber si ya mostramos todos los archivos
         # ELIMINADO: self.tipo_busqueda (ya no se usa)
         
         # Gestor de historial y autocompletado
@@ -303,6 +304,9 @@ class BuscadorArchivos(VentanaBase):
         self.timer_autocompletar = QTimer()
         self.timer_autocompletar.setSingleShot(True)
         self.timer_autocompletar.timeout.connect(self.buscar_sugerencias)
+        
+        # OPTIMIZACIÓN: Delay aumentado para mayor estabilidad
+        self.DELAY_BUSQUEDA_VIVO = 500  # ms (0.5 segundos)
     
     # ========== AUTOCOMPLETADO Y HISTORIAL ==========
     
@@ -410,12 +414,10 @@ class BuscadorArchivos(VentanaBase):
         """
         Se ejecuta cuando cambia el texto en el campo de búsqueda.
         Actualiza sugerencias del historial e inicia búsqueda en vivo.
+        OPTIMIZADO: No actualiza completer en cada tecla para mejor rendimiento.
         """
-        # CAMBIO: Siempre mostrar TODO el historial, no solo coincidencias
-        # El QCompleter ya se encarga de filtrar internamente
-        model = QStringListModel()
-        model.setStringList(self.historial.obtener_todos())
-        self.completer.setModel(model)
+        # OPTIMIZACIÓN: Solo iniciar búsqueda, no actualizar completer cada vez
+        # El completer ya tiene todo el historial cargado
         
         # Iniciar búsqueda en vivo si hay unidad seleccionada
         self.iniciar_autocompletado()
@@ -564,41 +566,69 @@ class BuscadorArchivos(VentanaBase):
         """
         Muestra todos los archivos indexados en la lista de resultados.
         Conecta el evento de doble clic para abrir archivos.
+        OPTIMIZADO: Límite agresivo de 50 archivos para mayor estabilidad.
         """
-        self.results_list.clear()
-        self.resultados = self.todos_los_archivos
-        
-        # Conectar evento de doble clic (desconectar previo si existe)
         try:
-            self.results_list.itemDoubleClicked.disconnect()
-        except TypeError:
-            pass
-        self.results_list.itemDoubleClicked.connect(self.abrir_item)
-        
-        if not self.todos_los_archivos:
+            # OPTIMIZACIÓN: Deshabilitar actualizaciones durante la carga
+            self.results_list.setUpdatesEnabled(False)
+            self.results_list.clear()
+            self.resultados = self.todos_los_archivos
+            
+            # Conectar evento de doble clic (desconectar previo si existe)
+            try:
+                self.results_list.itemDoubleClicked.disconnect()
+            except TypeError:
+                pass
+            self.results_list.itemDoubleClicked.connect(self.abrir_item)
+            
+            if not self.todos_los_archivos:
+                self.results_list.addItem("")
+                self.results_list.addItem("  No hay archivos en esta unidad")
+                return
+            
+            total_archivos = len(self.todos_los_archivos)
+            
+            # LÍMITE AGRESIVO: Máximo 50 archivos cuando se muestra todo
+            MAX_MOSTRAR_TODOS = 50
+            
+            # Establecer flag
+            self.mostrando_todos = True
+            
+            # Mostrar encabezado con información
             self.results_list.addItem("")
-            self.results_list.addItem("  No hay archivos en esta unidad")
-            return
-        
-        # Mostrar encabezado con información
-        self.results_list.addItem("")
-        self.results_list.addItem(f"  Total: {len(self.todos_los_archivos)} archivos")
-        self.results_list.addItem("")
-        self.results_list.addItem("  Doble clic para abrir | Escribe para buscar")
-        self.results_list.addItem("")
-        self.results_list.addItem("  " + "=" * 80)
-        
-        # Mostrar archivos (limitar para mejor rendimiento)
-        archivos_mostrados = self.todos_los_archivos[:self.MAX_ARCHIVOS_MOSTRADOS]
-        for archivo in archivos_mostrados:
-            self.results_list.addItem(f"  {archivo['nombre']}")
-        
-        # Indicar si hay más archivos
-        archivos_restantes = len(self.todos_los_archivos) - self.MAX_ARCHIVOS_MOSTRADOS
-        if archivos_restantes > 0:
+            self.results_list.addItem(f"  Total: {total_archivos} archivos")
             self.results_list.addItem("")
-            self.results_list.addItem(f"  ... y {archivos_restantes} archivos más")
-            self.results_list.addItem("  (Usa la búsqueda para filtrar)")
+            self.results_list.addItem("  💡 Escribe para buscar archivos específicos")
+            self.results_list.addItem("")
+            self.results_list.addItem("  " + "=" * 80)
+            
+            # Mostrar solo los primeros archivos (límite agresivo)
+            archivos_a_mostrar = min(MAX_MOSTRAR_TODOS, total_archivos)
+            for i in range(archivos_a_mostrar):
+                try:
+                    archivo = self.todos_los_archivos[i]
+                    self.results_list.addItem(f"  {archivo['nombre']}")
+                except Exception as e:
+                    print(f"Error mostrando archivo {i}: {e}")
+                    continue
+            
+            # Indicar si hay más archivos
+            archivos_restantes = total_archivos - archivos_a_mostrar
+            if archivos_restantes > 0:
+                self.results_list.addItem("")
+                self.results_list.addItem(f"  ... y {archivos_restantes} archivos más")
+                self.results_list.addItem("")
+                self.results_list.addItem("  ⚡ Escribe en la búsqueda para filtrar")
+            
+            # Rehabilitar actualizaciones
+            self.results_list.setUpdatesEnabled(True)
+                
+        except Exception as e:
+            print(f"Error en mostrar_todos_los_archivos: {e}")
+            self.results_list.setUpdatesEnabled(True)
+            self.results_list.clear()
+            self.results_list.addItem("")
+            self.results_list.addItem("  Error al mostrar archivos")
     
     # ========== TIPOS DE BÚSQUEDA ==========
     
@@ -631,11 +661,15 @@ class BuscadorArchivos(VentanaBase):
         """
         Inicia el timer para búsqueda en vivo con delay.
         Evita hacer búsquedas por cada tecla presionada.
+        OPTIMIZADO: Cancela timer previo explícitamente.
         """
         if not self.unidad_seleccionada or not self.todos_los_archivos:
             return
         
-        # Reiniciar timer (espera 300ms desde última tecla)
+        # OPTIMIZACIÓN: Detener timer anterior explícitamente
+        self.timer_autocompletar.stop()
+        
+        # Reiniciar timer (espera 500ms desde última tecla)
         self.timer_autocompletar.start(self.DELAY_BUSQUEDA_VIVO)
     
     def BusquedaPor(self, texto: str, incluir_contenido: bool = False) -> List[Dict]:
@@ -693,9 +727,16 @@ class BuscadorArchivos(VentanaBase):
             texto = self.search_input.text().strip().lower()
             
             if not texto:
+                # OPTIMIZACIÓN: Si ya mostramos todos, no hacerlo de nuevo
+                if self.mostrando_todos:
+                    return
                 # Sin texto, mostrar todos los archivos
                 self.mostrar_todos_los_archivos()
+                self.mostrando_todos = True
                 return
+            
+            # Si hay texto, ya no estamos mostrando todos
+            self.mostrando_todos = False
             
             # LÍMITE: Si el texto es muy corto y hay muchos archivos, no buscar
             if len(texto) < 2 and len(self.todos_los_archivos) > 500:
@@ -801,7 +842,7 @@ class BuscadorArchivos(VentanaBase):
         self.results_list.addItem("  Analizando...")
         
         # LÍMITE DE TAMAÑO: 5MB por archivo
-        MAX_TAMANIO_ARCHIVO = 3 * 1024 * 1024  # 5MB en bytes
+        MAX_TAMANIO_ARCHIVO = 5 * 1024 * 1024  # 5MB en bytes
         
         for idx, archivo in enumerate(archivos_a_buscar):
             # Actualizar progreso cada 20 archivos (menos frecuente = más estable)
@@ -850,14 +891,14 @@ class BuscadorArchivos(VentanaBase):
         total = len(self.todos_los_archivos)
         
         # LÍMITE DE TAMAÑO: 5MB por archivo (igual que en el otro método)
-        MAX_TAMANIO_ARCHIVO = 3 * 1024 * 1024  # 5MB en bytes
+        MAX_TAMANIO_ARCHIVO = 5 * 1024 * 1024  # 5MB en bytes
         
         # Actualizar UI mostrando progreso
         self.results_list.clear()
         self.results_list.addItem("")
         self.results_list.addItem("  Buscando en contenido de archivos...")
         self.results_list.addItem("")
-        self.results_list.addItem("  (Solo archivos < 3MB)")
+        self.results_list.addItem("  (Solo archivos < 5MB)")
         
         for idx, archivo in enumerate(self.todos_los_archivos):
             # Mostrar progreso cada 20 archivos (menos frecuente = más estable)
@@ -871,7 +912,7 @@ class BuscadorArchivos(VentanaBase):
                     pass
             
             try:
-                # FILTRO: Ignorar archivos muy grandes (> 3MB)
+                # FILTRO: Ignorar archivos muy grandes (> 5MB)
                 if os.path.exists(archivo['ruta']):
                     tamanio = os.path.getsize(archivo['ruta'])
                     if tamanio > MAX_TAMANIO_ARCHIVO:
@@ -905,6 +946,8 @@ class BuscadorArchivos(VentanaBase):
             if coincidencias is None:
                 coincidencias = []
             
+            # OPTIMIZACIÓN: Deshabilitar actualizaciones mientras agregamos items
+            self.results_list.setUpdatesEnabled(False)
             self.results_list.clear()
             self.resultados = coincidencias
             
@@ -944,9 +987,13 @@ class BuscadorArchivos(VentanaBase):
                 restantes = len(coincidencias) - MAX_MOSTRAR
                 self.results_list.addItem("")
                 self.results_list.addItem(f"  ... y {restantes} resultados más")
+            
+            # Rehabilitar actualizaciones
+            self.results_list.setUpdatesEnabled(True)
                 
         except Exception as e:
             print(f"Error crítico en _mostrar_resultados: {e}")
+            self.results_list.setUpdatesEnabled(True)
             self.results_list.clear()
             self.results_list.addItem("")
             self.results_list.addItem("  Error al mostrar resultados")
