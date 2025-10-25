@@ -19,7 +19,6 @@ class VentanaBase(QMainWindow):
     
     Proporciona:
     - Layout principal con barra de búsqueda
-    - Botones de tipo de búsqueda (nombre, extensión, contenido)
     - Panel lateral para unidades USB
     - Panel principal para resultados
     """
@@ -35,6 +34,7 @@ class VentanaBase(QMainWindow):
     COLOR_PRIMARIO_PRESSED = "#C02556"  # Rosa presionado
     COLOR_FONDO_OSCURO = "#2B313F"  # Fondo oscuro
     COLOR_FONDO_CLARO = "#3a3a3c"   # Fondo claro
+    COLOR_SECUNDARIO = "#4A90E2"    # Azul para botón secundario
     
     def init_ui(self):
         """
@@ -57,7 +57,6 @@ class VentanaBase(QMainWindow):
         
         # Agregar componentes en orden vertical
         layout.addLayout(self._crear_barra_busqueda())
-        # ELIMINADO: layout.addLayout(self._crear_botones_tipo_busqueda())
         
         # Paneles principales (horizontal)
         paneles = QHBoxLayout()
@@ -90,7 +89,7 @@ class VentanaBase(QMainWindow):
         Crea la barra de búsqueda superior con campo de texto y botones.
         
         Returns:
-            Layout horizontal con: campo de búsqueda, botón buscar, botón limpiar
+            Layout horizontal con: campo de búsqueda, botón buscar y botón contenido
         """
         barra = QHBoxLayout()
         barra.setSpacing(10)
@@ -101,12 +100,12 @@ class VentanaBase(QMainWindow):
         # Botón principal de búsqueda
         self.btn_buscar = self._crear_boton_buscar()
         
-        # Botón para limpiar historial
-        self.btn_historial = self._crear_boton_limpiar()
+        # Botón de búsqueda por contenido
+        self.btn_buscar_contenido = self._crear_boton_buscar_contenido()
         
         barra.addWidget(self.search_input)
         barra.addWidget(self.btn_buscar)
-        barra.addWidget(self.btn_historial)
+        barra.addWidget(self.btn_buscar_contenido)
         
         return barra
     
@@ -115,7 +114,7 @@ class VentanaBase(QMainWindow):
         Crea el campo de entrada de texto para búsquedas.
         
         Features:
-        - Búsqueda combinada (nombre, extensión y contenido)
+        - Placeholder dinámico
         - Bordes redondeados
         - Efecto de foco con cambio de color
         - Conectado a eventos de cambio de texto y Enter
@@ -124,7 +123,7 @@ class VentanaBase(QMainWindow):
             Campo de texto configurado
         """
         campo = QLineEdit()
-        campo.setPlaceholderText("Buscar archivos (por nombre, extensión o contenido)...")
+        campo.setPlaceholderText("Escribe el nombre del archivo...")
         campo.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {self.COLOR_FONDO_OSCURO};
@@ -141,6 +140,7 @@ class VentanaBase(QMainWindow):
         """)
         
         # Conectar eventos (se implementan en la clase derivada)
+        # CORRECCIÓN: textChanged en lugar de .anged
         campo.textChanged.connect(self.on_texto_cambiado)
         campo.returnPressed.connect(self.buscar_archivos)
         
@@ -176,123 +176,39 @@ class VentanaBase(QMainWindow):
         
         return boton
     
-    def _crear_boton_limpiar(self) -> QPushButton:
+    def _crear_boton_buscar_contenido(self) -> QPushButton:
         """
-        Crea el botón para limpiar el historial de búsquedas.
+        Crea el botón de búsqueda por contenido.
         
         Returns:
-            Botón de limpiar con tooltip y estilo secundario
+            Botón de búsqueda por contenido con estilo diferenciado
         """
-        boton = QPushButton("LIMPIAR")
-        boton.setFixedSize(100, 50)
-        boton.setToolTip("Limpiar historial de búsquedas")
+        boton = QPushButton("🔍 CONTENIDO")
+        boton.setFixedSize(160, 50)
         boton.setStyleSheet(f"""
             QPushButton {{
-                background-color: #DB7093;
+                background-color: {self.COLOR_SECUNDARIO};
                 color: white;
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: bold;
-                border: 2px solid #666;
+                border: none;
                 border-radius: 25px;
             }}
             QPushButton:hover {{
-                background-color: {self.COLOR_PRIMARIO};
-                border-color: {self.COLOR_PRIMARIO};
+                background-color: #5AA0F2;
             }}
             QPushButton:pressed {{
-                background-color: {self.COLOR_PRIMARIO_PRESSED};
+                background-color: #3A7AC2;
+            }}
+            QPushButton:disabled {{
+                background-color: #666666;
+                color: #999999;
             }}
         """)
         boton.setCursor(Qt.PointingHandCursor)
-        boton.clicked.connect(self.limpiar_historial)
+        boton.clicked.connect(self.buscar_por_contenido)
         
         return boton
-    
-    # MÉTODO ELIMINADO: Ya no se usan los botones de tipo de búsqueda
-    # La búsqueda ahora combina nombre, extensión y contenido en un solo método
-    """
-    def _crear_botones_tipo_busqueda(self) -> QHBoxLayout:
-        
-        Crea los botones para seleccionar el tipo de búsqueda.
-        
-        Tipos disponibles:
-        1. Por Nombre: Busca en el nombre del archivo
-        2. Por Extensión: Busca por tipo de archivo (.pdf, .txt, etc.)
-        3. Por Contenido: Busca dentro del contenido del archivo
-        
-        Returns:
-            Layout horizontal con los tres botones de tipo de búsqueda
-        
-        layout_botones = QHBoxLayout()
-        layout_botones.setSpacing(10)
-        
-        # Grupo de botones mutuamente excluyentes (solo uno activo a la vez)
-        self.grupo_busqueda = QButtonGroup()
-        
-        # Crear los tres botones de tipo de búsqueda
-        self.btn_nombre = self._crear_boton_tipo("Por Nombre", 1, checked=True)
-        self.btn_extension = self._crear_boton_tipo("Por Extension", 2)
-        self.btn_contenido = self._crear_boton_tipo("Por Contenido", 3)
-        
-        # Agregar botones al grupo
-        self.grupo_busqueda.addButton(self.btn_nombre, 1)
-        self.grupo_busqueda.addButton(self.btn_extension, 2)
-        self.grupo_busqueda.addButton(self.btn_contenido, 3)
-        
-        # Conectar señal para actualizar búsqueda al cambiar tipo
-        self.grupo_busqueda.buttonClicked.connect(self.cambiar_tipo_busqueda)
-        
-        # Centrar botones en el layout
-        layout_botones.addStretch()
-        layout_botones.addWidget(self.btn_nombre)
-        layout_botones.addWidget(self.btn_extension)
-        layout_botones.addWidget(self.btn_contenido)
-        layout_botones.addStretch()
-        
-        return layout_botones
-    """
-    
-    # MÉTODO ELIMINADO: Ya no se crean botones individuales de tipo de búsqueda
-    """
-    def _crear_boton_tipo(self, texto: str, id_tipo: int, checked: bool = False) -> QPushButton:
-        
-        Crea un botón de tipo de búsqueda.
-        
-        Args:
-            texto: Texto a mostrar en el botón
-            id_tipo: ID del tipo de búsqueda (1, 2 o 3)
-            checked: Si debe estar seleccionado por defecto
-            
-        Returns:
-            Botón configurado con estilo toggle
-        
-        boton = QPushButton(texto)
-        boton.setCheckable(True)
-        boton.setChecked(checked)
-        boton.setFixedHeight(40)
-        boton.setStyleSheet(f'''
-            QPushButton {{
-                background-color: {self.COLOR_FONDO_CLARO};
-                color: white;
-                font-size: 14px;
-                font-weight: bold;
-                border: 2px solid #666;
-                border-radius: 20px;
-                padding: 0 20px;
-            }}
-            QPushButton:hover {{
-                background-color: #4a4a4c;
-                border-color: {self.COLOR_PRIMARIO};
-            }}
-            QPushButton:checked {{
-                background-color: {self.COLOR_PRIMARIO};
-                border-color: {self.COLOR_PRIMARIO_HOVER};
-            }}
-        ''')
-        boton.setCursor(Qt.PointingHandCursor)
-        
-        return boton
-    """
     
     def _crear_panel_izquierdo(self, parent: QHBoxLayout):
         """
@@ -405,17 +321,17 @@ class VentanaBase(QMainWindow):
         """Ejecuta la búsqueda de archivos."""
         pass
     
+    def buscar_por_contenido(self):
+        """Ejecuta la búsqueda por contenido de archivos."""
+        pass
+    
     def limpiar_historial(self):
         """Limpia el historial de búsquedas."""
         pass
     
-    # MÉTODO ELIMINADO: Ya no se cambia el tipo de búsqueda
-    # La búsqueda ahora es automática combinando todos los criterios
-    """
     def cambiar_tipo_busqueda(self, boton):
-        Cambia el tipo de búsqueda activo.
+        """Cambia el tipo de búsqueda activo."""
         pass
-    """
     
     def mostrar_mensaje_inicial(self):
         """Muestra el mensaje inicial en la lista de resultados."""
