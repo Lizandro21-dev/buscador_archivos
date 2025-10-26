@@ -23,6 +23,7 @@ from PyQt5.QtGui import QFont
 from ventana import VentanaBase
 from GestorHistorial import GestorHistorial
 from ventana_instrucciones import VentanaInstrucciones
+from lectores import leer_contenido_archivo as leer_contenido_archivo_factory
 
 
 # ========== CONSTANTES ==========
@@ -74,93 +75,16 @@ def detectar_unidades_disponibles() -> List[Dict[str, str]]:
 
 
 def leer_contenido_archivo(ruta: str) -> str:
-    """Lee contenido de un archivo."""
-    try:
-        extension = os.path.splitext(ruta)[1].lower()
+    """
+    Lee contenido de un archivo usando Factory Pattern.
+    
+    Args:
+        ruta: Ruta del archivo a leer
         
-        if extension in EXTENSIONES_TEXTO:
-            return _leer_archivo_texto(ruta)
-        elif extension == '.docx':
-            return _leer_docx(ruta)
-        elif extension == '.pptx':
-            return _leer_pptx(ruta)
-        elif extension == '.xlsx':
-            return _leer_xlsx(ruta)
-        elif extension == '.pdf':
-            return _leer_pdf(ruta)
-        
-        return ""
-    except:
-        return ""
-
-
-def _leer_archivo_texto(ruta: str) -> str:
-    """Lee archivos de texto."""
-    for encoding in ENCODINGS_TEXTO:
-        try:
-            with open(ruta, 'r', encoding=encoding) as f:
-                return f.read().lower()
-        except:
-            continue
-    return ""
-
-
-def _leer_docx(ruta: str) -> str:
-    """Lee archivos .docx."""
-    try:
-        import docx
-        doc = docx.Document(ruta)
-        texto = '\n'.join([p.text for p in doc.paragraphs])
-        return texto.lower()
-    except:
-        return ""
-
-
-def _leer_pptx(ruta: str) -> str:
-    """Lee archivos .pptx."""
-    try:
-        from pptx import Presentation
-        prs = Presentation(ruta)
-        texto = ''
-        for slide in prs.slides:
-            for shape in slide.shapes:
-                if hasattr(shape, "text"):
-                    texto += shape.text + '\n'
-        return texto.lower()
-    except:
-        return ""
-
-
-def _leer_xlsx(ruta: str) -> str:
-    """Lee archivos .xlsx."""
-    try:
-        from openpyxl import load_workbook
-        wb = load_workbook(ruta, read_only=True, data_only=True)
-        texto = ''
-        for sheet in wb.worksheets:
-            for row in sheet.iter_rows(values_only=True):
-                for cell in row:
-                    if cell is not None:
-                        texto += str(cell) + ' '
-                texto += '\n'
-        wb.close()
-        return texto.lower()
-    except:
-        return ""
-
-
-def _leer_pdf(ruta: str) -> str:
-    """Lee archivos .pdf."""
-    try:
-        import PyPDF2
-        with open(ruta, 'rb') as f:
-            pdf = PyPDF2.PdfReader(f)
-            texto = ''
-            for page in pdf.pages:
-                texto += page.extract_text()
-            return texto.lower()
-    except:
-        return ""
+    Returns:
+        Contenido del archivo en minúsculas
+    """
+    return leer_contenido_archivo_factory(ruta)
 
 
 # ========== CLASE PRINCIPAL ==========
