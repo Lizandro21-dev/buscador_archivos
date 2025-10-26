@@ -658,21 +658,76 @@ class BuscadorArchivos(VentanaBase):
             print(f"Error buscando: {e}")
     
     def abrir_item(self, item):
-        """Abre archivo."""
+        """
+        Abre un archivo con la aplicación predeterminada del sistema.
+        Muestra mensajes claros si hay errores.
+        """
         try:
+            # Extraer nombre del archivo
             texto = item.text().strip().replace("📄", "").strip()
             
+            # Buscar el archivo en los resultados
+            archivo_encontrado = None
             for archivo in self.resultados:
                 if archivo['nombre'] == texto:
-                    if platform.system() == 'Windows':
-                        os.startfile(archivo['ruta'])
-                    elif platform.system() == 'Darwin':
-                        subprocess.call(['open', archivo['ruta']])
-                    else:
-                        subprocess.call(['xdg-open', archivo['ruta']])
-                    return
+                    archivo_encontrado = archivo
+                    break
+            
+            # Si no se encuentra
+            if not archivo_encontrado:
+                self.alerta("No se pudo localizar el archivo seleccionado.")
+                return
+            
+            ruta = archivo_encontrado['ruta']
+            
+            # Verificar que el archivo existe
+            if not os.path.exists(ruta):
+                self.alerta(
+                    f"Archivo no encontrado\n\n"
+                    f"El archivo ya no existe en:\n{ruta}\n\n"
+                    f"Puede que haya sido movido o eliminado.",
+                    QMessageBox.Critical
+                )
+                return
+            
+            # Intentar abrir según el sistema operativo
+            try:
+                if platform.system() == 'Windows':
+                    os.startfile(ruta)
+                elif platform.system() == 'Darwin':
+                    resultado = subprocess.call(['open', ruta])
+                    if resultado != 0:
+                        raise OSError("No se pudo abrir")
+                else:
+                    resultado = subprocess.call(['xdg-open', ruta])
+                    if resultado != 0:
+                        raise OSError("No se pudo abrir")
+                        
+            except OSError as e:
+                # No hay programa para abrir este tipo de archivo
+                extension = os.path.splitext(ruta)[1].lower()
+                
+                self.alerta(
+                    f"No se puede abrir este archivo\n\n"
+                    f"Su sistema no cuenta con un programa para ejecutar "
+                    f"archivos de tipo '{extension}'\n\n"
+                    f"Archivo: {os.path.basename(ruta)}\n\n"
+                    f"Instale un programa compatible.",
+                    QMessageBox.Warning
+                )
+                print(f"Error OSError: {e}")
+                
+            except Exception as e:
+                # Otros errores
+                self.alerta(
+                    f"Error al abrir el archivo\n\n{str(e)}",
+                    QMessageBox.Critical
+                )
+                print(f"Error: {e}")
+                
         except Exception as e:
-            print(f"Error abriendo: {e}")
+            self.alerta(f"Error inesperado:\n{str(e)}")
+            print(f"Error en abrir_item: {e}")
     
     def limpiar_historial(self):
         """Limpia historial."""
