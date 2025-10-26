@@ -1,8 +1,3 @@
-"""
-Utils - Módulo principal del Buscador de Archivos USB
-Versión 100% estable - sin crashes
-"""
-
 import os
 import sys
 import string
@@ -94,7 +89,7 @@ class BuscadorArchivos(VentanaBase):
     
     INTERVALO_DETECCION_USB = 2000
     DELAY_BUSQUEDA_VIVO = 500
-    MAX_ARCHIVOS_MOSTRADOS = 100
+    MAX_ARCHIVOS_MOSTRADOS = 200
     
     BUSQUEDA_NOMBRE = 1
     BUSQUEDA_EXTENSION = 2
@@ -241,6 +236,8 @@ class BuscadorArchivos(VentanaBase):
             
             if not texto_limpio:
                 self.tipo_busqueda = self.BUSQUEDA_NOMBRE
+            elif texto_limpio.startswith('@'):
+                self.tipo_busqueda = self.BUSQUEDA_CONTENIDO
             elif texto_limpio.startswith('.'):
                 self.tipo_busqueda = self.BUSQUEDA_EXTENSION
             else:
@@ -367,12 +364,8 @@ class BuscadorArchivos(VentanaBase):
                 self.results_list.addItem("  No hay archivos")
                 return
             
-            self.results_list.addItem("")
             self.results_list.addItem(f"  Total: {len(self.todos_los_archivos)} archivos")
-            self.results_list.addItem("")
-            self.results_list.addItem("  Doble clic para abrir | Escribe para buscar")
-            self.results_list.addItem("")
-            self.results_list.addItem("  " + "=" * 80)
+            self.results_list.addItem("  " + "_" * 80)
             
             for archivo in self.todos_los_archivos[:self.MAX_ARCHIVOS_MOSTRADOS]:
                 self.results_list.addItem(f"  {archivo['nombre']}")
@@ -391,23 +384,33 @@ class BuscadorArchivos(VentanaBase):
         pass
     
     def _ejecutar_busqueda_diferida(self):
-        """Ejecuta búsqueda después del delay."""
+        """Ejecuta búsqueda diferida."""
         try:
-            if not self.unidad_seleccionada or not self.todos_los_archivos:
+            if self.buscando_contenido:
                 return
             
-            texto = self.search_input.text().strip().lower()
+            if not self.unidad_seleccionada:
+                return
+            
+            texto = self.search_input.text().strip()
             
             if not texto:
                 self.mostrar_todos_los_archivos()
                 return
             
-            if self.tipo_busqueda == self.BUSQUEDA_EXTENSION:
-                coincidencias = self._buscar_por_extension(texto)
-            else:
-                coincidencias = self._buscar_por_nombre(texto)
+            # Si empieza con @, buscar por contenido
+            if self.tipo_busqueda == self.BUSQUEDA_CONTENIDO:
+                self._buscar_por_contenido_automatico(texto)
+                return
             
-            self._mostrar_resultados(coincidencias, texto)
+            texto_lower = texto.lower()
+            
+            if self.tipo_busqueda == self.BUSQUEDA_EXTENSION:
+                coincidencias = self._buscar_por_extension(texto_lower)
+            else:
+                coincidencias = self._buscar_por_nombre(texto_lower)
+            
+            self._mostrar_resultados(coincidencias, texto_lower)
         except Exception as e:
             print(f"Error en búsqueda: {e}")
     
@@ -449,6 +452,62 @@ class BuscadorArchivos(VentanaBase):
             return coincidencias
         except:
             return []
+        
+
+    def _buscar_por_contenido_automatico(self, texto: str) -> None:
+        """
+        Busca por contenido cuando el usuario escribe @texto.
+        Se ejecuta automáticamente sin necesidad de botón.
+        """
+        try:
+            # Remover el @ del texto
+            texto_busqueda = texto[1:].strip() if texto.startswith('@') else texto.strip()
+            
+            if not texto_busqueda:
+                self.alerta("Escribe algo después del @\n\nEjemplo: @inteligencia artificial")
+                return
+            
+            if not self.unidad_seleccionada:
+                self.alerta("Selecciona una unidad USB primero")
+                return
+            
+            if not self.todos_los_archivos:
+                self.alerta("No hay archivos indexados")
+                return
+            
+            if self.buscando_contenido:
+                return
+            
+            # Iniciar búsqueda
+            self.buscando_contenido = True
+            
+            # Agregar al historial
+            self.historial.agregar(texto)
+            self.actualizar_completer()
+            
+            # Deshabilitar controles durante la búsqueda
+            self.btn_buscar.setEnabled(False)
+            self.search_input.setEnabled(False)
+            
+            # Mostrar mensaje de búsqueda en progreso
+            self.results_list.clear()
+            self.results_list.addItem("")
+            self.results_list.addItem("   BUSCANDO EN CONTENIDO...")
+            self.results_list.addItem("")
+            self.results_list.addItem("   Por favor espera...")
+            self.results_list.addItem("")
+            self.results_list.addItem("  Progreso: 0%")
+            
+            # Ejecutar búsqueda en thread separado
+            threading.Thread(
+                target=self._ejecutar_busqueda_contenido_thread, 
+                args=(texto_busqueda,), 
+                daemon=True
+            ).start()
+            
+        except Exception as e:
+            print(f"Error iniciando búsqueda por contenido: {e}")
+            self.buscando_contenido = False
     
     def _mostrar_resultados(self, coincidencias: List[Dict], texto: str):
         """Muestra resultados."""
@@ -464,15 +523,15 @@ class BuscadorArchivos(VentanaBase):
             
             tipo_str = "extensión" if self.tipo_busqueda == self.BUSQUEDA_EXTENSION else "nombre"
             
-            self.results_list.addItem("")
             self.results_list.addItem(f"  Búsqueda por {tipo_str}: '{texto}'")
             self.results_list.addItem(f"  Resultados: {len(coincidencias)} archivo(s)")
-            self.results_list.addItem("")
-            self.results_list.addItem("  " + "=" * 80)
+            self.results_list.addItem("  " + "_" * 80)
             
             if not coincidencias:
                 self.results_list.addItem("")
-                self.results_list.addItem("  No se encontraron archivos")
+                self.results_list.addItem("Error al encontrar arvhivo")
+                self.results_list.addItem("")
+                self.results_list.addItem("Verifique su busqueda")
                 return
             
             for archivo in coincidencias[:self.MAX_ARCHIVOS_MOSTRADOS]:
@@ -485,54 +544,6 @@ class BuscadorArchivos(VentanaBase):
         except Exception as e:
             print(f"Error mostrando resultados: {e}")
     
-    # ========== BÚSQUEDA CONTENIDO ==========
-    
-    def buscar_por_contenido(self):
-        """Busca por contenido."""
-        try:
-            texto = self.search_input.text().strip()
-            
-            if not texto:
-                self.alerta("Escribe algo para buscar")
-                return
-            
-            if not self.unidad_seleccionada:
-                self.alerta("Selecciona una unidad USB")
-                return
-            
-            if not self.todos_los_archivos:
-                self.alerta("No hay archivos indexados")
-                return
-            
-            if self.buscando_contenido:
-                return
-            
-            self.buscando_contenido = True
-            
-            self.historial.agregar(texto)
-            self.actualizar_completer()
-            
-            self.btn_buscar_contenido.setEnabled(False)
-            self.btn_buscar_contenido.setText("⏳ BUSCANDO...")
-            self.btn_buscar.setEnabled(False)
-            self.search_input.setEnabled(False)
-            
-            self.results_list.clear()
-            self.results_list.addItem("")
-            self.results_list.addItem("  ⏳ BUSCANDO EN CONTENIDO...")
-            self.results_list.addItem("")
-            self.results_list.addItem("  📄 Por favor espera...")
-            self.results_list.addItem("")
-            self.results_list.addItem("  Progreso: 0%")
-            
-            threading.Thread(
-                target=self._ejecutar_busqueda_contenido_thread, 
-                args=(texto,), 
-                daemon=True
-            ).start()
-        except Exception as e:
-            print(f"Error iniciando búsqueda: {e}")
-            self.buscando_contenido = False
     
     def _ejecutar_busqueda_contenido_thread(self, texto: str):
         """Thread de búsqueda."""
@@ -573,8 +584,7 @@ class BuscadorArchivos(VentanaBase):
         try:
             self.buscando_contenido = False
             
-            self.btn_buscar_contenido.setEnabled(True)
-            self.btn_buscar_contenido.setText("🔍 CONTENIDO")
+            # Reactivar controles
             self.btn_buscar.setEnabled(True)
             self.search_input.setEnabled(True)
             
@@ -587,8 +597,7 @@ class BuscadorArchivos(VentanaBase):
         try:
             self.buscando_contenido = False
             
-            self.btn_buscar_contenido.setEnabled(True)
-            self.btn_buscar_contenido.setText("🔍 CONTENIDO")
+            # Reactivar controles
             self.btn_buscar.setEnabled(True)
             self.search_input.setEnabled(True)
             
@@ -610,19 +619,17 @@ class BuscadorArchivos(VentanaBase):
                 pass
             self.results_list.itemDoubleClicked.connect(self.abrir_item)
             
-            self.results_list.addItem("")
-            self.results_list.addItem(f"  🔍 Búsqueda por CONTENIDO: '{texto}'")
-            self.results_list.addItem(f"  ✅ Resultados: {len(coincidencias)} archivo(s)")
-            self.results_list.addItem("")
-            self.results_list.addItem("  " + "=" * 80)
+            self.results_list.addItem(f"Búsqueda por CONTENIDO: '{texto}'")
+            self.results_list.addItem(f"Resultados: {len(coincidencias)} archivo(s)")
+            self.results_list.addItem("  " + "_" * 80)
             
             if not coincidencias:
                 self.results_list.addItem("")
-                self.results_list.addItem("  ❌ No se encontraron archivos")
+
+                self.results_list.addItem("No se encontraron archivos")
                 self.results_list.addItem("")
-                self.results_list.addItem("  💡 Consejos:")
-                self.results_list.addItem("     • Verifica la ortografía")
-                self.results_list.addItem("     • Intenta palabras más simples")
+                self.results_list.addItem(" • Verifica la ortografía")
+                self.results_list.addItem(" • Intenta palabras más simples")
                 return
             
             self.results_list.addItem("")

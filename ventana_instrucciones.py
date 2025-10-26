@@ -103,12 +103,7 @@ class VentanaInstrucciones(QMainWindow):
         """
         return """
             <div style='font-family: Segoe UI; font-size: 20px; line-height: 1.8; color: white;'>
-                <h3 style='color: #E32D64; margin-top: 16px;'> Instrucciones:</h3>
-                <ol style='padding-left: 24px;'>
-                    <li><b>Selecciona una unidad USB</b> del panel izquierdo</li>
-                    <li><b>Espera</b> a que se indexen todos los archivos</li>
-                    <li><b>Escribe</b> para buscar o explora todos los archivos</li>
-                </ol>
+                
                 
                 <h3 style='color: #E32D64; margin-top: 20px;'> Detección Automática:</h3>
                 <ul style='padding-left: 20px;'>
@@ -117,6 +112,9 @@ class VentanaInstrucciones(QMainWindow):
                     
                     <li style='margin-top: 10px;'><b>Búsqueda por extensión:</b> Empieza con punto<br>
                         <i style='color: #aaa;'>Ejemplo: ".pdf", ".txt", ".jpg"</i></li>
+
+                    <li style='margin-top: 10px;'><b>Búsqueda por contenido:</b> Empieza con @<br>
+                        <i style='color: #aaa;'>Ejemplo: "@Lizandro", "@JAVA", "@SQL"</i></li>
                 </ul>
             </div>
         """

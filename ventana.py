@@ -86,10 +86,10 @@ class VentanaBase(QMainWindow):
     
     def _crear_barra_busqueda(self) -> QHBoxLayout:
         """
-        Crea la barra de búsqueda superior con campo de texto y botones.
+        Crea la barra de búsqueda superior con campo de texto y botón.
         
         Returns:
-            Layout horizontal con: campo de búsqueda, botón buscar y botón contenido
+            Layout horizontal con: campo de búsqueda y botón buscar
         """
         barra = QHBoxLayout()
         barra.setSpacing(10)
@@ -100,12 +100,8 @@ class VentanaBase(QMainWindow):
         # Botón principal de búsqueda
         self.btn_buscar = self._crear_boton_buscar()
         
-        # Botón de búsqueda por contenido
-        self.btn_buscar_contenido = self._crear_boton_buscar_contenido()
-        
         barra.addWidget(self.search_input)
         barra.addWidget(self.btn_buscar)
-        barra.addWidget(self.btn_buscar_contenido)
         
         return barra
     
@@ -123,7 +119,7 @@ class VentanaBase(QMainWindow):
             Campo de texto configurado
         """
         campo = QLineEdit()
-        campo.setPlaceholderText("Escribe el nombre del archivo...")
+        campo.setPlaceholderText("Escribe el nombre del archivo, @texto para buscar en contenido o .'archivo'")
         campo.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {self.COLOR_FONDO_OSCURO};
@@ -140,7 +136,6 @@ class VentanaBase(QMainWindow):
         """)
         
         # Conectar eventos (se implementan en la clase derivada)
-        # CORRECCIÓN: textChanged en lugar de .anged
         campo.textChanged.connect(self.on_texto_cambiado)
         campo.returnPressed.connect(self.buscar_archivos)
         
@@ -173,40 +168,6 @@ class VentanaBase(QMainWindow):
         """)
         boton.setCursor(Qt.PointingHandCursor)
         boton.clicked.connect(self.buscar_archivos)
-        
-        return boton
-    
-    def _crear_boton_buscar_contenido(self) -> QPushButton:
-        """
-        Crea el botón de búsqueda por contenido.
-        
-        Returns:
-            Botón de búsqueda por contenido con estilo diferenciado
-        """
-        boton = QPushButton("🔍 CONTENIDO")
-        boton.setFixedSize(160, 50)
-        boton.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.COLOR_SECUNDARIO};
-                color: white;
-                font-size: 15px;
-                font-weight: bold;
-                border: none;
-                border-radius: 25px;
-            }}
-            QPushButton:hover {{
-                background-color: #5AA0F2;
-            }}
-            QPushButton:pressed {{
-                background-color: #3A7AC2;
-            }}
-            QPushButton:disabled {{
-                background-color: #666666;
-                color: #999999;
-            }}
-        """)
-        boton.setCursor(Qt.PointingHandCursor)
-        boton.clicked.connect(self.buscar_por_contenido)
         
         return boton
     
@@ -290,7 +251,8 @@ class VentanaBase(QMainWindow):
                 background-color: transparent;
                 color: white;
                 font-family: 'Segoe UI', Arial;
-                font-size: 14px;
+                font-size: 20px;
+                font-weight: bold;
                 border: none;
                 outline: none;
             }}

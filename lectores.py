@@ -333,7 +333,7 @@ if __name__ == '__main__':
     print("=" * 70)
     print("DEMOSTRACIÓN DEL FACTORY PATTERN")
     print("=" * 70)
-    
+     
     # Ejemplo 1: Crear lectores para diferentes archivos
     print("\n1. CREACIÓN DE LECTORES:")
     print("-" * 50)
