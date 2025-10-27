@@ -1,22 +1,13 @@
-"""
-Ventana - Módulo de interfaz gráfica base
-Define la estructura visual de la aplicación usando PyQt5.
-Implementa un diseño moderno con gradientes, bordes redondeados y efectos hover.
-"""
-
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLineEdit, QListWidget, QLabel, QMessageBox, 
-    QFrame, QButtonGroup
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLineEdit, QListWidget, QLabel, QFrame
 )
 from PyQt5.QtCore import Qt
-from typing import Optional
 
 
 class VentanaBase(QMainWindow):
     """
     Clase base que define la interfaz gráfica del buscador de archivos.
-    
     Proporciona:
     - Layout principal con barra de búsqueda
     - Panel lateral para unidades USB
@@ -40,22 +31,22 @@ class VentanaBase(QMainWindow):
         """
         Inicializa y configura todos los elementos de la interfaz gráfica.
         Estructura jerárquica:
-        - Ventana principal
-          ├── Barra de búsqueda (superior)
-          └── Paneles horizontales
-              ├── Panel izquierdo (unidades USB)
-              └── Panel derecho (resultados)
+        + Ventana principal
+          - Barra de búsqueda (superior)
+          - Paneles horizontales
+              * Panel izquierdo (unidades USB)
+              * Panel derecho (resultados)
         """
         self._configurar_ventana_principal()
         
-        # Widget central con layout vertical
+        # Seccion media
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
         
-        # Agregar componentes en orden vertical
+        # Componentes en orden vertical
         layout.addLayout(self._crear_barra_busqueda())
         
         # Paneles principales (horizontal)
@@ -72,7 +63,7 @@ class VentanaBase(QMainWindow):
         self.setWindowTitle("Buscador de Archivos USB")
         self.setGeometry(100, 100, self.VENTANA_ANCHO, self.VENTANA_ALTO)
         
-        # Gradiente de fondo (oscuro arriba, más claro abajo)
+        # Fondo (oscuro arriba, más claro abajo)
         self.setStyleSheet(f"""
             QMainWindow {{
                 background-color: qlineargradient(
@@ -87,8 +78,7 @@ class VentanaBase(QMainWindow):
     def _crear_barra_busqueda(self) -> QHBoxLayout:
         """
         Crea la barra de búsqueda superior con campo de texto y botón.
-        
-        Returns:
+        Devuelve:
             Layout horizontal con: campo de búsqueda y botón buscar
         """
         barra = QHBoxLayout()
@@ -108,14 +98,13 @@ class VentanaBase(QMainWindow):
     def _crear_campo_busqueda(self) -> QLineEdit:
         """
         Crea el campo de entrada de texto para búsquedas.
-        
-        Features:
-        - Placeholder dinámico
+        Caracteristicas:
+        - Seccion resultados dinámicos
         - Bordes redondeados
         - Efecto de foco con cambio de color
         - Conectado a eventos de cambio de texto y Enter
         
-        Returns:
+        Devuelve:
             Campo de texto configurado
         """
         campo = QLineEdit()
@@ -143,9 +132,8 @@ class VentanaBase(QMainWindow):
     
     def _crear_boton_buscar(self) -> QPushButton:
         """
-        Crea el botón principal de búsqueda.
-        
-        Returns:
+        Botón principal de búsqueda.
+        Devuelve:
             Botón de búsqueda con estilo y efectos hover
         """
         boton = QPushButton("BUSCAR")
@@ -173,14 +161,10 @@ class VentanaBase(QMainWindow):
     
     def _crear_panel_izquierdo(self, parent: QHBoxLayout):
         """
-        Crea el panel lateral izquierdo para mostrar unidades USB detectadas.
-        
+        Panel lateral izquierdo para mostrar unidades USB detectadas.
         El panel contiene:
         - Título "UNIDADES USB"
         - Área dinámica donde se agregan botones de unidades detectadas
-        
-        Args:
-            parent: Layout padre donde se agregará este panel
         """
         panel = QFrame()
         panel.setFixedWidth(self.PANEL_USB_ANCHO)
@@ -223,14 +207,10 @@ class VentanaBase(QMainWindow):
     def _crear_panel_derecho(self, parent: QHBoxLayout):
         """
         Crea el panel principal derecho para mostrar resultados de búsqueda.
-        
-        Features:
+        Caracteristicas:
         - Lista de resultados con scroll automático
         - Estilo semi-transparente con bordes redondeados
         - Selección y hover con efectos visuales
-        
-        Args:
-            parent: Layout padre donde se agregará este panel
         """
         panel = QFrame()
         panel.setStyleSheet(f"""

@@ -1,8 +1,3 @@
-"""
-VentanaInstrucciones - Ventana independiente para mostrar instrucciones de uso
-Muestra guías, consejos y ejemplos de cómo usar el buscador de archivos USB
-"""
-
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QLabel, 
     QPushButton, QTextEdit

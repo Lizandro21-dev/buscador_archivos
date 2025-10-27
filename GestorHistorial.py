@@ -1,9 +1,3 @@
-"""
-GestorHistorial - Módulo para gestionar el historial de búsquedas del usuario
-Mantiene un registro persistente de las búsquedas realizadas, ordenado alfabéticamente
-y limitado a un máximo de búsquedas para evitar saturación.
-"""
-
 import json
 import os
 from typing import List, Optional
@@ -12,8 +6,6 @@ from typing import List, Optional
 class GestorHistorial:
     """
     Administrador del historial de búsquedas del usuario.
-    
-    Características:
     - Almacenamiento persistente en archivo JSON
     - Ordenamiento alfabético automático (case-insensitive)
     - Sin duplicados

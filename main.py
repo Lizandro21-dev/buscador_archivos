@@ -630,7 +630,7 @@ class BuscadorArchivos(VentanaBase):
             
             self.results_list.clear()
             self.results_list.addItem("")
-            self.results_list.addItem(f"  ❌ Error: {error}")
+            self.results_list.addItem(f" Error: {error}")
         except:
             pass
     
@@ -776,7 +776,7 @@ class BuscadorArchivos(VentanaBase):
         try:
             self.results_list.clear()
             self.results_list.addItem("")
-            self.results_list.addItem("  🔍 Buscador de Archivos USB")
+            self.results_list.addItem("  Buscador de Archivos USB")
             self.results_list.addItem("")
             self.results_list.addItem("  Selecciona una unidad USB...")
             self.results_list.addItem("")
