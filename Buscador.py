@@ -6,6 +6,7 @@ import subprocess
 import platform
 from typing import List, Dict, Optional
 import win32file
+from collections import defaultdict
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -21,8 +22,7 @@ from ventana_instrucciones import VentanaInstrucciones
 from lectores import leer_contenido_archivo as leer_contenido_archivo_factory
 
 
-# ========== CONSTANTES ==========
-
+# CONSTANTES
 EXTENSIONES_TEXTO = {
     '.txt', '.log', '.csv', '.json', '.xml', '.html', 
     '.py', '.js', '.css', '.md', '.ini', '.conf'
@@ -31,19 +31,19 @@ EXTENSIONES_TEXTO = {
 ENCODINGS_TEXTO = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
 
 
-# ========== SEÑALES ==========
-
+# SEÑALES
 class Signals(QObject):
     """Señales para comunicación thread-safe."""
     progreso_actualizado = pyqtSignal(int, int, int)
     busqueda_finalizada = pyqtSignal(list, str)
     error_busqueda = pyqtSignal(str)
+    indexacion_completa = pyqtSignal(int)
 
 
-# ========== FUNCIONES AUXILIARES ==========
-
+# FUNCIONES AUXILIARES
 def detectar_unidades_disponibles() -> List[Dict[str, str]]:
     """Detecta unidades extraíbles USB."""
+    import win32api
     unidades = []
     
     for letra in string.ascii_uppercase:
@@ -58,11 +58,25 @@ def detectar_unidades_disponibles() -> List[Dict[str, str]]:
         try:
             tipo_unidad = win32file.GetDriveType(unidad)
             
-            if tipo_unidad == 2:
-                unidades.append({
-                    'texto': f"{letra}:/", 
-                    'ruta': unidad
-                })
+            if tipo_unidad not in [2, 3]:
+                continue
+            
+            # Obtener etiqueta del volumen
+            try:
+                volume_info = win32api.GetVolumeInformation(unidad)
+                etiqueta = volume_info[0]
+                
+                if etiqueta:
+                    texto = f"{letra}:/ {etiqueta}"
+                else:
+                    texto = f"{letra}:/ {'USB Removible' if tipo_unidad == 2 else 'Disco Externo'}"
+            except:
+                texto = f"{letra}:/"
+            
+            unidades.append({
+                'texto': texto,
+                'ruta': unidad
+            })
         except:
             continue
     
@@ -70,26 +84,18 @@ def detectar_unidades_disponibles() -> List[Dict[str, str]]:
 
 
 def leer_contenido_archivo(ruta: str) -> str:
-    """
-    Lee contenido de un archivo usando Factory Pattern.
-    
-    Args:
-        ruta: Ruta del archivo a leer
-        
-    Returns:
-        Contenido del archivo en minúsculas
-    """
+    """Lee contenido de un archivo usando Factory Pattern."""
     return leer_contenido_archivo_factory(ruta)
 
 
-# ========== CLASE PRINCIPAL ==========
-
+# CLASE PRINCIPAL
 class BuscadorArchivos(VentanaBase):
-    """Clase principal del buscador - Versión estable."""
+    """Clase principal del buscador - Corregida sin duplicación."""
     
-    INTERVALO_DETECCION_USB = 2000
-    DELAY_BUSQUEDA_VIVO = 500
-    MAX_ARCHIVOS_MOSTRADOS = 200
+    INTERVALO_DETECCION_USB = 3000
+    DELAY_BUSQUEDA_VIVO = 200
+    MAX_ARCHIVOS_MOSTRADOS = 999999999
+    UPDATE_INTERVAL = 2500
     
     BUSQUEDA_NOMBRE = 1
     BUSQUEDA_EXTENSION = 2
@@ -106,12 +112,23 @@ class BuscadorArchivos(VentanaBase):
         self.unidades_previas = []
         self.tipo_busqueda = self.BUSQUEDA_NOMBRE
         self.buscando_contenido = False
+        self.indexando = False
+        
+        # Control de threads
+        self.thread_indexacion_activo = None
+        self.cancelar_indexacion = False
+        self.lock_indexacion = threading.Lock()
+        
+        # Índices para búsqueda ultra-rápida
+        self.indice_nombres = defaultdict(list)
+        self.indice_extensiones = defaultdict(list)
         
         # Señales
         self.signals = Signals()
         self.signals.progreso_actualizado.connect(self._on_progreso_actualizado)
         self.signals.busqueda_finalizada.connect(self._on_busqueda_finalizada)
         self.signals.error_busqueda.connect(self._on_error_busqueda)
+        self.signals.indexacion_completa.connect(self._on_indexacion_completa)
         
         # Historial
         self.historial = GestorHistorial()
@@ -143,20 +160,16 @@ class BuscadorArchivos(VentanaBase):
         except:
             pass
     
-    # ========== AUTOCOMPLETADO ==========
-    
+    # AUTOCOMPLETADO
     def configurar_autocompletado(self):
         """Configura autocompletado."""
         try:
             self.completer = QCompleter()
             self.completer.setCaseSensitivity(Qt.CaseInsensitive)
-            
-            # CLAVE: Usar UnfilteredPopupCompletion para mostrar TODO siempre
-            self.completer.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
-            self.completer.setMaxVisibleItems(30)  # Mostrar hasta 30 resultados
+            self.completer.setFilterMode(Qt.MatchContains)
+            self.completer.setMaxVisibleItems(20)
             
             popup = self.completer.popup()
-            popup.setMinimumHeight(100)  # Altura mínima del popup
             popup.setStyleSheet("""
                 QListView {
                     background-color: #2B313F;
@@ -165,7 +178,6 @@ class BuscadorArchivos(VentanaBase):
                     border-radius: 12px;
                     padding: 10px;
                     font-size: 16px;
-                    min-height: 100px;
                 }
                 QListView::item {
                     padding: 12px;
@@ -183,10 +195,6 @@ class BuscadorArchivos(VentanaBase):
             """)
             
             self.search_input.setCompleter(self.completer)
-            
-            # Conectar evento de focus para mostrar historial al hacer clic
-            self.search_input.mousePressEvent = self._on_search_input_clicked
-            
             self.actualizar_completer()
         except Exception as e:
             print(f"Error configurando autocompletado: {e}")
@@ -201,23 +209,10 @@ class BuscadorArchivos(VentanaBase):
         except:
             pass
     
-    
-    def _on_search_input_clicked(self, event):
-        """Muestra el historial completo al hacer clic en el campo de búsqueda."""
-        try:
-            # Llamar al evento original de mouse
-            from PyQt5.QtWidgets import QLineEdit
-            QLineEdit.mousePressEvent(self.search_input, event)
-            
-            # Mostrar el completer con todo el historial
-            if self.completer and self.historial.total_busquedas() > 0:
-                self.completer.complete()
-        except Exception as e:
-            print(f"Error mostrando historial: {e}")
     def on_texto_cambiado(self):
-        """Cuando cambia el texto - CRÍTICO PARA ESTABILIDAD."""
+        """Cuando cambia el texto."""
         try:
-            if self.buscando_contenido:
+            if self.buscando_contenido or self.indexando:
                 return
             
             texto = self.search_input.text()
@@ -225,8 +220,15 @@ class BuscadorArchivos(VentanaBase):
             # Detectar tipo
             self._detectar_tipo_busqueda(texto)
             
-            # NO actualizar el completer aquí - Qt lo filtra automáticamente
-            # El completer ya tiene todo el historial y hace el filtrado solo
+            # Actualizar historial
+            try:
+                coincidencias = self.historial.buscar_coincidencias(texto)
+                if self.completer:
+                    model = QStringListModel()
+                    model.setStringList(coincidencias)
+                    self.completer.setModel(model)
+            except:
+                pass
             
             # Si vacío, mostrar todo
             if not texto.strip():
@@ -259,8 +261,7 @@ class BuscadorArchivos(VentanaBase):
         except:
             self.tipo_busqueda = self.BUSQUEDA_NOMBRE
     
-    # ========== USB ==========
-    
+    # USB
     def cargar_unidades(self):
         """Carga unidades USB."""
         try:
@@ -312,17 +313,19 @@ class BuscadorArchivos(VentanaBase):
             letras_previas = {u['texto'] for u in self.unidades_previas}
             
             if letras_actuales != letras_previas:
-                # Verificar si la unidad seleccionada fue desconectada
                 if self.unidad_seleccionada:
-                    # Obtener la letra de la unidad seleccionada (ej: "D:\\")
                     letra_seleccionada = self.unidad_seleccionada[0] + ":/"
                     
-                    # Si la unidad seleccionada ya no está disponible
                     if letra_seleccionada not in letras_actuales:
-                        # Limpiar resultados y estado
+                        # Cancelar indexación si está en proceso
+                        self.cancelar_indexacion = True
+                        
                         self.unidad_seleccionada = None
                         self.resultados = []
                         self.todos_los_archivos = []
+                        self.indice_nombres.clear()
+                        self.indice_extensiones.clear()
+                        self.indexando = False
                         self.mostrar_mensaje_inicial()
                 
                 self.cargar_unidades()
@@ -331,12 +334,31 @@ class BuscadorArchivos(VentanaBase):
         except:
             pass
     
-    # ========== INDEXACIÓN ==========
-    
+    # INDEXACIÓN SIN DUPLICADOS
     def seleccionar_unidad(self, unidad: Dict[str, str]):
-        """Selecciona unidad."""
+        """Selecciona unidad sin duplicar indexación."""
         try:
+            # Si ya está indexando, cancelar y esperar
+            if self.indexando:
+                print("Ya hay una indexacion en proceso, cancelando...")
+                self.cancelar_indexacion = True
+                
+                # Esperar a que termine el thread anterior
+                if self.thread_indexacion_activo and self.thread_indexacion_activo.is_alive():
+                    self.thread_indexacion_activo.join(timeout=2.0)
+                
+                self.indexando = False
+            
+            # Limpiar estado anterior
+            with self.lock_indexacion:
+                self.todos_los_archivos = []
+                self.indice_nombres.clear()
+                self.indice_extensiones.clear()
+                self.resultados = []
+                self.cancelar_indexacion = False
+            
             self.unidad_seleccionada = unidad['ruta']
+            self.indexando = True
             
             self.results_list.clear()
             self.results_list.addItem("")
@@ -344,38 +366,121 @@ class BuscadorArchivos(VentanaBase):
             self.results_list.addItem(f"  Ruta: {unidad['ruta']}")
             self.results_list.addItem("")
             self.results_list.addItem("  Indexando archivos...")
+            self.results_list.addItem("  Progreso: 0 archivos")
             
-            threading.Thread(target=self.indexar_unidad, daemon=True).start()
+            # Iniciar nuevo thread
+            self.thread_indexacion_activo = threading.Thread(
+                target=self.indexar_unidad_ultra_optimizado, 
+                daemon=True
+            )
+            self.thread_indexacion_activo.start()
+            
         except Exception as e:
             print(f"Error seleccionando unidad: {e}")
+            self.indexando = False
     
-    def indexar_unidad(self):
-        """Indexa archivos."""
+    def indexar_unidad_ultra_optimizado(self):
+        """Indexa archivos de forma ultra-optimizada con índices."""
+        archivos_temp = []
+        indices_nombres_temp = defaultdict(list)
+        indices_ext_temp = defaultdict(list)
+        
         try:
-            self.todos_los_archivos = []
-            
             if not self.unidad_seleccionada:
                 return
             
+            contador = 0
+            ultimo_update = 0
+            
+            # Directorios a ignorar
+            DIRS_IGNORAR = {
+                '$RECYCLE.BIN', 'System Volume Information', '$Recycle.Bin',
+                'RECYCLER', 'Config.Msi', 'Recovery', '$Windows.~BT',
+                'Windows.old', 'PerfLogs', 'hiberfil.sys', 'pagefile.sys'
+            }
+            
             for root, dirs, files in os.walk(self.unidad_seleccionada):
+                # Verificar cancelación
+                if self.cancelar_indexacion:
+                    print("Indexacion cancelada")
+                    return
+                
+                # Filtrar directorios del sistema (in-place)
+                dirs[:] = [d for d in dirs if d not in DIRS_IGNORAR and not d.startswith('$')]
+                
                 for nombre_archivo in files:
+                    # Verificar cancelación
+                    if self.cancelar_indexacion:
+                        print("Indexacion cancelada")
+                        return
+                    
                     try:
                         ruta_completa = os.path.join(root, nombre_archivo)
-                        self.todos_los_archivos.append({
+                        extension = os.path.splitext(nombre_archivo)[1].lower()
+                        
+                        # Agregar archivo a lista temporal
+                        archivo_dict = {
                             'nombre': nombre_archivo,
                             'ruta': ruta_completa,
-                            'extension': os.path.splitext(nombre_archivo)[1].lower()
-                        })
-                    except:
+                            'extension': extension
+                        }
+                        
+                        indice = len(archivos_temp)
+                        archivos_temp.append(archivo_dict)
+                        
+                        # Crear índices temporales
+                        nombre_sin_ext = os.path.splitext(nombre_archivo)[0].lower()
+                        indices_nombres_temp[nombre_sin_ext].append(indice)
+                        indices_ext_temp[extension].append(indice)
+                        
+                        contador += 1
+                        
+                        # Actualizar progreso cada UPDATE_INTERVAL archivos
+                        if contador - ultimo_update >= self.UPDATE_INTERVAL:
+                            self.signals.progreso_actualizado.emit(contador, 0, 0)
+                            ultimo_update = contador
+                    except Exception as e:
                         continue
             
-            self.todos_los_archivos.sort(key=lambda x: x['nombre'].lower())
-            QTimer.singleShot(0, self.mostrar_todos_los_archivos)
+            # Solo actualizar si no fue cancelado
+            if not self.cancelar_indexacion:
+                with self.lock_indexacion:
+                    self.todos_los_archivos = archivos_temp
+                    self.indice_nombres = indices_nombres_temp
+                    self.indice_extensiones = indices_ext_temp
+                
+                # Notificar finalización
+                self.signals.indexacion_completa.emit(len(self.todos_los_archivos))
+            
         except Exception as e:
             print(f"Error indexando: {e}")
+            self.indexando = False
+    
+    def _on_indexacion_completa(self, total):
+        """Callback cuando termina la indexación."""
+        try:
+            self.indexando = False
+            self.cancelar_indexacion = False
+            
+            print(f"Indexacion completa: {total:,} archivos")
+            print(f"Indices creados: {len(self.indice_nombres)} nombres, {len(self.indice_extensiones)} extensiones")
+            
+            self.mostrar_todos_los_archivos()
+        except:
+            pass
+    
+    def _on_progreso_actualizado(self, actual, total, porcentaje):
+        """Actualiza progreso de indexación."""
+        try:
+            if self.indexando and self.results_list.count() >= 6:
+                item = self.results_list.item(5)
+                if item:
+                    item.setText(f"  Progreso: {actual:,} archivos")
+        except:
+            pass
     
     def mostrar_todos_los_archivos(self):
-        """Muestra todos los archivos."""
+        """Muestra todos los archivos de forma eficiente."""
         try:
             self.results_list.clear()
             self.resultados = self.todos_los_archivos
@@ -391,29 +496,29 @@ class BuscadorArchivos(VentanaBase):
                 self.results_list.addItem("  No hay archivos")
                 return
             
-            self.results_list.addItem(f"  Total: {len(self.todos_los_archivos)} archivos")
+            total = len(self.todos_los_archivos)
+            self.results_list.addItem(f"  Total: {total:,} archivos indexados")
+            self.results_list.addItem(f"  Indices: {len(self.indice_nombres):,} nombres, {len(self.indice_extensiones):,} extensiones")
             self.results_list.addItem("  " + "_" * 80)
             
-            for archivo in self.todos_los_archivos[:self.MAX_ARCHIVOS_MOSTRADOS]:
+            # Mostrar solo los primeros archivos
+            limite = min(self.MAX_ARCHIVOS_MOSTRADOS, total)
+            for archivo in self.todos_los_archivos[:limite]:
                 self.results_list.addItem(f"  {archivo['nombre']}")
             
-            restantes = len(self.todos_los_archivos) - self.MAX_ARCHIVOS_MOSTRADOS
-            if restantes > 0:
+            if total > self.MAX_ARCHIVOS_MOSTRADOS:
+                restantes = total - self.MAX_ARCHIVOS_MOSTRADOS
                 self.results_list.addItem("")
-                self.results_list.addItem(f"  ... y {restantes} archivos más")
+                self.results_list.addItem(f"  ... y {restantes:,} archivos mas (usa busqueda)")
+        
         except Exception as e:
             print(f"Error mostrando archivos: {e}")
     
-    # ========== BÚSQUEDA ==========
-    
-    def cambiar_tipo_busqueda(self, boton):
-        """Compatibilidad."""
-        pass
-    
+    # BÚSQUEDA ULTRA-RÁPIDA CON ÍNDICES
     def _ejecutar_busqueda_diferida(self):
         """Ejecuta búsqueda diferida."""
         try:
-            if self.buscando_contenido:
+            if self.buscando_contenido or self.indexando:
                 return
             
             if not self.unidad_seleccionada:
@@ -425,7 +530,7 @@ class BuscadorArchivos(VentanaBase):
                 self.mostrar_todos_los_archivos()
                 return
             
-            # Si empieza con @, buscar por contenido
+            # Búsqueda por contenido
             if self.tipo_busqueda == self.BUSQUEDA_CONTENIDO:
                 self._buscar_por_contenido_automatico(texto)
                 return
@@ -433,65 +538,63 @@ class BuscadorArchivos(VentanaBase):
             texto_lower = texto.lower()
             
             if self.tipo_busqueda == self.BUSQUEDA_EXTENSION:
-                coincidencias = self._buscar_por_extension(texto_lower)
+                coincidencias = self._buscar_por_extension_indexado(texto_lower)
             else:
-                coincidencias = self._buscar_por_nombre(texto_lower)
+                coincidencias = self._buscar_por_nombre_indexado(texto_lower)
             
             self._mostrar_resultados(coincidencias, texto_lower)
         except Exception as e:
-            print(f"Error en búsqueda: {e}")
+            print(f"Error en busqueda: {e}")
     
-    def buscar_sugerencias(self):
-        """Compatibilidad."""
-        try:
-            self._ejecutar_busqueda_diferida()
-        except:
-            pass
-    
-    def _buscar_por_nombre(self, texto: str) -> List[Dict]:
-        """Busca por nombre."""
+    def _buscar_por_nombre_indexado(self, texto: str) -> List[Dict]:
+        """Búsqueda por nombre ultra-rápida usando índice."""
         try:
             coincidencias = []
-            for archivo in self.todos_los_archivos:
-                try:
-                    nombre = os.path.splitext(archivo['nombre'])[0].lower()
-                    if texto in nombre:
-                        coincidencias.append(archivo)
-                except:
-                    continue
+            indices_encontrados = set()
+            
+            # Buscar en índice de nombres
+            for nombre_indexado, lista_indices in self.indice_nombres.items():
+                if texto in nombre_indexado:
+                    indices_encontrados.update(lista_indices)
+            
+            # Obtener archivos usando índices
+            for idx in sorted(indices_encontrados):
+                if idx < len(self.todos_los_archivos):
+                    coincidencias.append(self.todos_los_archivos[idx])
+                    if len(coincidencias) >= 50000:
+                        break
+            
             return coincidencias
-        except:
+        except Exception as e:
+            print(f"Error en busqueda indexada: {e}")
             return []
     
-    def _buscar_por_extension(self, texto: str) -> List[Dict]:
-        """Busca por extensión."""
+    def _buscar_por_extension_indexado(self, texto: str) -> List[Dict]:
+        """Búsqueda por extensión ultra-rápida usando índice."""
         try:
             if not texto.startswith('.'):
                 texto = '.' + texto
             
+            # Búsqueda directa en índice
+            indices = self.indice_extensiones.get(texto, [])
+            
             coincidencias = []
-            for archivo in self.todos_los_archivos:
-                try:
-                    if archivo['extension'] == texto:
-                        coincidencias.append(archivo)
-                except:
-                    continue
+            for idx in indices:
+                if idx < len(self.todos_los_archivos):
+                    coincidencias.append(self.todos_los_archivos[idx])
+            
             return coincidencias
-        except:
+        except Exception as e:
+            print(f"Error en busqueda extension: {e}")
             return []
-        
-
-    def _buscar_por_contenido_automatico(self, texto: str) -> None:
-        """
-        Busca por contenido cuando el usuario escribe @texto.
-        Se ejecuta automáticamente sin necesidad de botón.
-        """
+    
+    def _buscar_por_contenido_automatico(self, texto: str):
+        """Búsqueda por contenido."""
         try:
-            # Remover el @ del texto
             texto_busqueda = texto[1:].strip() if texto.startswith('@') else texto.strip()
             
             if not texto_busqueda:
-                self.alerta("Escribe algo después del @\n\nEjemplo: @inteligencia artificial")
+                self.alerta("Escribe algo despues del @")
                 return
             
             if not self.unidad_seleccionada:
@@ -505,27 +608,22 @@ class BuscadorArchivos(VentanaBase):
             if self.buscando_contenido:
                 return
             
-            # Iniciar búsqueda
             self.buscando_contenido = True
             
-            # Agregar al historial
             self.historial.agregar(texto)
             self.actualizar_completer()
             
-            # Deshabilitar controles durante la búsqueda
             self.btn_buscar.setEnabled(False)
             self.search_input.setEnabled(False)
             
-            # Mostrar mensaje de búsqueda en progreso
             self.results_list.clear()
             self.results_list.addItem("")
-            self.results_list.addItem("   BUSCANDO EN CONTENIDO...")
+            self.results_list.addItem("  BUSCANDO EN CONTENIDO...")
             self.results_list.addItem("")
-            self.results_list.addItem("   Por favor espera...")
+            self.results_list.addItem("  Por favor espera...")
             self.results_list.addItem("")
             self.results_list.addItem("  Progreso: 0%")
             
-            # Ejecutar búsqueda en thread separado
             threading.Thread(
                 target=self._ejecutar_busqueda_contenido_thread, 
                 args=(texto_busqueda,), 
@@ -533,47 +631,11 @@ class BuscadorArchivos(VentanaBase):
             ).start()
             
         except Exception as e:
-            print(f"Error iniciando búsqueda por contenido: {e}")
+            print(f"Error iniciando busqueda por contenido: {e}")
             self.buscando_contenido = False
     
-    def _mostrar_resultados(self, coincidencias: List[Dict], texto: str):
-        """Muestra resultados."""
-        try:
-            self.results_list.clear()
-            self.resultados = coincidencias
-            
-            try:
-                self.results_list.itemDoubleClicked.disconnect()
-            except:
-                pass
-            self.results_list.itemDoubleClicked.connect(self.abrir_item)
-            
-            tipo_str = "extensión" if self.tipo_busqueda == self.BUSQUEDA_EXTENSION else "nombre"
-            
-            self.results_list.addItem(f"  Búsqueda por {tipo_str}: '{texto}'")
-            self.results_list.addItem(f"  Resultados: {len(coincidencias)} archivo(s)")
-            self.results_list.addItem("  " + "_" * 80)
-            
-            if not coincidencias:
-                self.results_list.addItem("")
-                self.results_list.addItem("Error al encontrar arvhivo")
-                self.results_list.addItem("")
-                self.results_list.addItem("Verifique su busqueda")
-                return
-            
-            for archivo in coincidencias[:self.MAX_ARCHIVOS_MOSTRADOS]:
-                self.results_list.addItem(f"  {archivo['nombre']}")
-            
-            if len(coincidencias) > self.MAX_ARCHIVOS_MOSTRADOS:
-                restantes = len(coincidencias) - self.MAX_ARCHIVOS_MOSTRADOS
-                self.results_list.addItem("")
-                self.results_list.addItem(f"  ... y {restantes} más")
-        except Exception as e:
-            print(f"Error mostrando resultados: {e}")
-    
-    
     def _ejecutar_busqueda_contenido_thread(self, texto: str):
-        """Thread de búsqueda."""
+        """Thread de búsqueda por contenido."""
         try:
             texto_lower = texto.lower()
             coincidencias = []
@@ -581,7 +643,7 @@ class BuscadorArchivos(VentanaBase):
             
             for idx, archivo in enumerate(self.todos_los_archivos):
                 try:
-                    if idx % 5 == 0:
+                    if idx % 10 == 0:
                         progreso = int((idx / total) * 100)
                         self.signals.progreso_actualizado.emit(idx, total, progreso)
                     
@@ -596,22 +658,11 @@ class BuscadorArchivos(VentanaBase):
         except Exception as e:
             self.signals.error_busqueda.emit(str(e))
     
-    def _on_progreso_actualizado(self, actual: int, total: int, porcentaje: int):
-        """Actualiza progreso."""
-        try:
-            if self.results_list.count() >= 6:
-                item = self.results_list.item(5)
-                if item:
-                    item.setText(f"  Progreso: {actual}/{total} ({porcentaje}%)")
-        except:
-            pass
-    
     def _on_busqueda_finalizada(self, coincidencias: List[Dict], texto: str):
         """Finaliza búsqueda."""
         try:
             self.buscando_contenido = False
             
-            # Reactivar controles
             self.btn_buscar.setEnabled(True)
             self.search_input.setEnabled(True)
             
@@ -624,15 +675,50 @@ class BuscadorArchivos(VentanaBase):
         try:
             self.buscando_contenido = False
             
-            # Reactivar controles
             self.btn_buscar.setEnabled(True)
             self.search_input.setEnabled(True)
             
             self.results_list.clear()
             self.results_list.addItem("")
-            self.results_list.addItem(f" Error: {error}")
+            self.results_list.addItem(f"  Error: {error}")
         except:
             pass
+    
+    def _mostrar_resultados(self, coincidencias: List[Dict], texto: str):
+        """Muestra resultados."""
+        try:
+            self.results_list.clear()
+            self.resultados = coincidencias
+            
+            try:
+                self.results_list.itemDoubleClicked.disconnect()
+            except:
+                pass
+            self.results_list.itemDoubleClicked.connect(self.abrir_item)
+            
+            tipo_str = "extension" if self.tipo_busqueda == self.BUSQUEDA_EXTENSION else "nombre"
+            
+            self.results_list.addItem("")
+            self.results_list.addItem(f"  Busqueda por {tipo_str}: '{texto}'")
+            self.results_list.addItem(f"  Resultados: {len(coincidencias):,} archivo(s)")
+            self.results_list.addItem("")
+            self.results_list.addItem("  " + "=" * 80)
+            
+            if not coincidencias:
+                self.results_list.addItem("")
+                self.results_list.addItem("  No se encontraron archivos")
+                return
+            
+            limite = min(self.MAX_ARCHIVOS_MOSTRADOS, len(coincidencias))
+            for archivo in coincidencias[:limite]:
+                self.results_list.addItem(f"  {archivo['nombre']}")
+            
+            if len(coincidencias) > self.MAX_ARCHIVOS_MOSTRADOS:
+                restantes = len(coincidencias) - self.MAX_ARCHIVOS_MOSTRADOS
+                self.results_list.addItem("")
+                self.results_list.addItem(f"  ... y {restantes:,} mas")
+        except Exception as e:
+            print(f"Error mostrando resultados: {e}")
     
     def _mostrar_resultados_contenido(self, coincidencias: List[Dict], texto: str):
         """Muestra resultados de contenido."""
@@ -646,32 +732,34 @@ class BuscadorArchivos(VentanaBase):
                 pass
             self.results_list.itemDoubleClicked.connect(self.abrir_item)
             
-            self.results_list.addItem(f"Búsqueda por CONTENIDO: '{texto}'")
-            self.results_list.addItem(f"Resultados: {len(coincidencias)} archivo(s)")
-            self.results_list.addItem("  " + "_" * 80)
+            self.results_list.addItem("")
+            self.results_list.addItem(f"  Busqueda por CONTENIDO: '{texto}'")
+            self.results_list.addItem(f"  Resultados: {len(coincidencias):,} archivo(s)")
+            self.results_list.addItem("")
+            self.results_list.addItem("  " + "=" * 80)
             
             if not coincidencias:
                 self.results_list.addItem("")
-
-                self.results_list.addItem("No se encontraron archivos")
+                self.results_list.addItem("  No se encontraron archivos")
                 self.results_list.addItem("")
-                self.results_list.addItem(" • Verifica la ortografía")
-                self.results_list.addItem(" • Intenta palabras más simples")
+                self.results_list.addItem("  Consejos:")
+                self.results_list.addItem("     - Verifica la ortografia")
+                self.results_list.addItem("     - Intenta palabras mas simples")
                 return
             
             self.results_list.addItem("")
-            for archivo in coincidencias[:self.MAX_ARCHIVOS_MOSTRADOS]:
-                self.results_list.addItem(f"  📄 {archivo['nombre']}")
+            limite = min(self.MAX_ARCHIVOS_MOSTRADOS, len(coincidencias))
+            for archivo in coincidencias[:limite]:
+                self.results_list.addItem(f"   {archivo['nombre']}")
             
             if len(coincidencias) > self.MAX_ARCHIVOS_MOSTRADOS:
                 restantes = len(coincidencias) - self.MAX_ARCHIVOS_MOSTRADOS
                 self.results_list.addItem("")
-                self.results_list.addItem(f"  ... y {restantes} más")
+                self.results_list.addItem(f"  ... y {restantes:,} mas")
         except Exception as e:
             print(f"Error mostrando resultados contenido: {e}")
     
-    # ========== ACCIONES ==========
-    
+    # ACCIONES
     def buscar_archivos(self):
         """Buscar archivos."""
         try:
@@ -692,76 +780,21 @@ class BuscadorArchivos(VentanaBase):
             print(f"Error buscando: {e}")
     
     def abrir_item(self, item):
-        """
-        Abre un archivo con la aplicación predeterminada del sistema.
-        Muestra mensajes claros si hay errores.
-        """
+        """Abre archivo."""
         try:
-            # Extraer nombre del archivo
-            texto = item.text().strip().replace("📄", "").strip()
+            texto = item.text().strip()
             
-            # Buscar el archivo en los resultados
-            archivo_encontrado = None
             for archivo in self.resultados:
                 if archivo['nombre'] == texto:
-                    archivo_encontrado = archivo
-                    break
-            
-            # Si no se encuentra
-            if not archivo_encontrado:
-                self.alerta("No se pudo localizar el archivo seleccionado.")
-                return
-            
-            ruta = archivo_encontrado['ruta']
-            
-            # Verificar que el archivo existe
-            if not os.path.exists(ruta):
-                self.alerta(
-                    f"Archivo no encontrado\n\n"
-                    f"El archivo ya no existe en:\n{ruta}\n\n"
-                    f"Puede que haya sido movido o eliminado.",
-                    QMessageBox.Critical
-                )
-                return
-            
-            # Intentar abrir según el sistema operativo
-            try:
-                if platform.system() == 'Windows':
-                    os.startfile(ruta)
-                elif platform.system() == 'Darwin':
-                    resultado = subprocess.call(['open', ruta])
-                    if resultado != 0:
-                        raise OSError("No se pudo abrir")
-                else:
-                    resultado = subprocess.call(['xdg-open', ruta])
-                    if resultado != 0:
-                        raise OSError("No se pudo abrir")
-                        
-            except OSError as e:
-                # No hay programa para abrir este tipo de archivo
-                extension = os.path.splitext(ruta)[1].lower()
-                
-                self.alerta(
-                    f"No se puede abrir este archivo\n\n"
-                    f"Su sistema no cuenta con un programa para ejecutar "
-                    f"archivos de tipo '{extension}'\n\n"
-                    f"Archivo: {os.path.basename(ruta)}\n\n"
-                    f"Instale un programa compatible.",
-                    QMessageBox.Warning
-                )
-                print(f"Error OSError: {e}")
-                
-            except Exception as e:
-                # Otros errores
-                self.alerta(
-                    f"Error al abrir el archivo\n\n{str(e)}",
-                    QMessageBox.Critical
-                )
-                print(f"Error: {e}")
-                
+                    if platform.system() == 'Windows':
+                        os.startfile(archivo['ruta'])
+                    elif platform.system() == 'Darwin':
+                        subprocess.call(['open', archivo['ruta']])
+                    else:
+                        subprocess.call(['xdg-open', archivo['ruta']])
+                    return
         except Exception as e:
-            self.alerta(f"Error inesperado:\n{str(e)}")
-            print(f"Error en abrir_item: {e}")
+            print(f"Error abriendo: {e}")
     
     def limpiar_historial(self):
         """Limpia historial."""
@@ -795,8 +828,7 @@ class BuscadorArchivos(VentanaBase):
             pass
 
 
-# ========== MAIN ==========
-
+# MAIN
 def main():
     """Main."""
     try:
@@ -805,7 +837,7 @@ def main():
         ventana.show()
         sys.exit(app.exec_())
     except Exception as e:
-        print(f"Error crítico: {e}")
+        print(f"Error critico: {e}")
         sys.exit(1)
 
 

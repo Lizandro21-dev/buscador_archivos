@@ -1,16 +1,9 @@
-"""
-lectores.py - Implementación completa del Factory Pattern
-Este archivo contiene todos los lectores de archivos organizados con Factory Pattern
-"""
-
 import os
 from abc import ABC, abstractmethod
 from typing import List
 
 
-# ============================================================
-# PASO 1: CLASE BASE (INTERFAZ)
-# ============================================================
+# CLASE BASE INTERFAZ
 
 class LectorArchivo(ABC):
     """
@@ -48,9 +41,7 @@ class LectorArchivo(ABC):
         pass
 
 
-# ============================================================
-# PASO 2: LECTORES CONCRETOS (uno por cada formato)
-# ============================================================
+# LECTORES CONCRETOS (uno por cada formato)
 
 class LectorTexto(LectorArchivo):
     """
@@ -183,9 +174,7 @@ class LectorGenerico(LectorArchivo):
         return ""
 
 
-# ============================================================
-# PASO 3: FACTORY (El cerebro del sistema)
-# ============================================================
+# FACTORY (El cerebro del sistema)
 
 class LectorFactory:
     """
@@ -287,9 +276,7 @@ class LectorFactory:
         return extensiones
 
 
-# ============================================================
 # FUNCIÓN DE CONVENIENCIA (para usar en tu código existente)
-# ============================================================
 
 def leer_contenido_archivo(ruta: str) -> str:
     """
@@ -320,9 +307,7 @@ def leer_contenido_archivo(ruta: str) -> str:
         return ""
 
 
-# ============================================================
 # EJEMPLO DE USO Y PRUEBAS
-# ============================================================
 
 if __name__ == '__main__':
     """
